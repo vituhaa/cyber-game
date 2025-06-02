@@ -14,4 +14,20 @@ PK  id          int
     typename    text
 """
 
-#TODO: написать функции для добавления типа задач и получения id по имени
+def get_type_id_by_name(name):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM Task_Type WHERE name = ?", (name,))
+        row = cur.fetchone()
+        return row[0] if row else None
+    
+def add_task_type(name):
+    with connect() as conn:
+        cur = conn.cursor()
+        if not get_type_id_by_name(name):
+            cur.execute("""
+            INSERT INTO Task_Type (name)
+            VALUES (?)""",
+            (name,))
+            return cur.lastrowid
+    

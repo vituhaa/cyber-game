@@ -47,11 +47,7 @@ def get_random_task():
         cur.execute("SELECT * FROM Task ORDER BY RANDOM() LIMIT 1")
         return cur.fetchone()
 
-def get_hints(task_id):
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT text, penalty FROM Hint WHERE task_id = ? ORDER BY order_num ASC", (task_id,))
-        return cur.fetchall()
+
 
 def get_task_solution(task_id):
     with connect() as conn:

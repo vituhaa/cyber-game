@@ -7,6 +7,7 @@ sys.path.append(str(project_root))
 
 from DBConnect import connect
 from UserTable import update_user_score
+from HintTable import get_hint_by_taskid_ordernum
 
 """
 Task_Attempt
@@ -89,8 +90,5 @@ def get_next_hint(user_id, task_id):
         used_hints = row[0] if row else 0
 
         # Получаем следующую подсказку
-        cur.execute("""
-            SELECT text, penalty FROM Hint
-            WHERE task_id = ? AND order_num = ?
-        """, (task_id, used_hints + 1))
-        return cur.fetchone()
+        return get_hint_by_taskid_ordernum(task_id,used_hints+1)
+        
