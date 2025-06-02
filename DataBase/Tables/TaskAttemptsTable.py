@@ -6,8 +6,8 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from DBConnect import connect
-from UserTable import update_user_score
-from HintTable import get_hint_by_taskid_ordernum
+from Tables.UserTable import update_user_score
+from Tables.HintTable import get_hint_by_taskid_ordernum
 
 """
 Task_Attempt
@@ -51,9 +51,9 @@ def save_attempt(user_id, task_id, is_correct, used_hints):
             INSERT INTO Task_Attempt (user_id, task_id, is_correct, used_hints, solved_at)
             VALUES (?, ?, ?, ?, ?)""",
             (user_id, task_id, is_correct, used_hints, datetime.utcnow()))
-        if is_correct:
-            score = max(10, 100 - used_hints * 10)
-            update_user_score(user_id, score, increment_solved=True)
+    if is_correct:
+        score = max(10, 100 - used_hints * 10)
+        update_user_score(user_id, score, increment_solved=True)
 
 
 

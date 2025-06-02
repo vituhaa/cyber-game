@@ -19,11 +19,24 @@ FK2 room_id int
 
 """
 
+#checked
+
+def get_room_participant_count(room_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) FROM Room_Participants WHERE room_id = ?", (room_id,))
+        row = cur.fetchone() 
+        return row[0] if row else 0
+
+
 def join_room(user_id, room_id):
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("INSERT INTO Room_Participants (user_id, room_id, score) VALUES (?, ?, 0)",
-                    (user_id, room_id))
+        cur.execute("SELECT room_id FROM Room_Participants WHERE user_id = ?",(user_id,))
+        row = cur.fetchone()
+        if not row:
+            cur.execute("INSERT INTO Room_Participants (user_id, room_id, score) VALUES (?, ?, 0)",
+                        (user_id, room_id))
         
 def update_player_score(user_id, room_id, score):
     with connect() as conn:
@@ -40,3 +53,12 @@ def get_room_participants(room_id):
             WHERE RP.room_id = ? ORDER BY RP.score DESC""",
             (room_id,))
         return cur.fetchall()
+    
+def remove_participant_from_room(room_id, user_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            DELETE FROM Room_Participants
+            WHERE room_id = ? AND user_id = ?
+        """, (room_id, user_id))
+        conn.commit()

@@ -17,7 +17,7 @@ PK  id          int
 def get_type_id_by_name(name):
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM Task_Type WHERE name = ?", (name,))
+        cur.execute("SELECT id FROM Task_Type WHERE typename = ?", (name,))
         row = cur.fetchone()
         return row[0] if row else None
     
@@ -26,7 +26,7 @@ def add_task_type(name):
         cur = conn.cursor()
         if not get_type_id_by_name(name):
             cur.execute("""
-            INSERT INTO Task_Type (name)
+            INSERT INTO Task_Type (typename)
             VALUES (?)""",
             (name,))
             return cur.lastrowid

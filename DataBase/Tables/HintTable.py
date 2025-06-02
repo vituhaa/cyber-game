@@ -23,6 +23,8 @@ FK1 task_id                                int
 
 """
 
+#checked
+
 def get_hint_by_taskid_ordernum(task_id, order_num):
     with connect() as conn:
         cur = conn.cursor()
@@ -37,3 +39,12 @@ def get_hints(task_id):
         cur = conn.cursor()
         cur.execute("SELECT text, penalty FROM Hint WHERE task_id = ? ORDER BY order_num ASC", (task_id,))
         return cur.fetchall()
+    
+def create_hint(task_id,text,order_num,penalty):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO Hint (task_id, text, order_num, penalty)
+            VALUES (?, ?, ?, ?)""",
+            (task_id, text, order_num, penalty, ))
+        return cur.lastrowid

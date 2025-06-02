@@ -47,6 +47,12 @@ def get_random_task():
         cur.execute("SELECT * FROM Task ORDER BY RANDOM() LIMIT 1")
         return cur.fetchone()
 
+def get_task_id_by_title(title):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM Task WHERE title = ?", (title,))
+        row = cur.fetchone()
+        return row[0] if row else None
 
 
 def get_task_solution(task_id):

@@ -1,11 +1,14 @@
 import sys
 from pathlib import Path
 from datetime import datetime
+import random
+import string
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from DBConnect import connect
+from Tables.RoomParticipants import join_room
 
 """
 Room
@@ -27,14 +30,37 @@ FK1 creator_id                  int
 
 """
 
-def create_room(creator_id, key):
+#checked
+
+def generate_random_key():
+     with connect() as conn:
+        cur = conn.cursor()
+        characters = string.ascii_uppercase + string.digits  # A-Z и 0-9
+        key = ''.join(random.choices(characters, k=6))
+        cur.execute("SELECT id FROM Room WHERE key = ?",(key,))
+        row = cur.fetchone()
+        while row:
+            key = ''.join(random.choices(characters, k=6))
+            cur.execute("SELECT id FROM Room WHERE key = ?",(key,))
+            row = cur.fetchone()
+        return key
+            
+def get_room_id_by_key(key):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM Room WHERE key = ?", (key,))
+        return cur.fetchone()[0]
+
+def create_room(creator_id, key, is_closed):
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("""
             INSERT INTO Room (creator_id, key, status, created_at, is_closed)
-            VALUES (?, ?, 'waiting', ?, 0)""",
-            (creator_id, key, datetime.utcnow()))
-        return cur.lastrowid
+            VALUES (?, ?, 'waiting', ?, ?)""",
+            (creator_id, key, datetime.utcnow(),is_closed))
+    room_id = get_room_id_by_key(key)
+    join_room(creator_id,room_id)
+    
 
 def find_open_room():
     with connect() as conn:
