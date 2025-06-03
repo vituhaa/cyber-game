@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -10,6 +10,9 @@ router = Router()
 
 class User(StatesGroup): # user data for registration
     name = State()
+
+class Task(StatesGroup):
+    type = State()
 
 @router.message(CommandStart()) # decorator for \start message
 async def command_start(message: Message, state: FSMContext):
@@ -64,11 +67,45 @@ async def get_user_name(message: Message, state: FSMContext):
         await message.answer('Ошибка регистрации!')
     await state.clear() # clear states
 
+# tap on button "task from category"
 @router.message(F.text == 'Задача из категории')
 async def task_from_category(message: Message):
-    await message.answer('Выберите сложность задачи', reply_markup=keyboards.task_from_category)
+    await message.answer('Выберите сложность задачи', reply_markup=keyboards.task_from_category) # choosing complexity 
+
+# if we choose any complexity, then we have a keyboard with choosing type of task
+@router.callback_query(F.data == 'easy')
+async def easy(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(complexity='лёгкую')
+    await callback.message.answer('Выберите тип задачи', reply_markup=keyboards.choosing_type_of_task)
+    await state.set_state(Task.type)
+
+@router.callback_query(F.data == 'normal')
+async def normal(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(complexity='среднюю')
+    await callback.message.answer('Выберите тип задачи', reply_markup=keyboards.choosing_type_of_task)
+    await state.set_state(Task.type)
+
+@router.callback_query(F.data == 'hard')
+async def hard(callback: CallbackQuery, state: FSMContext):
+    await state.update_data(complexity='сложную')
+    await callback.message.answer('Выберите тип задачи', reply_markup=keyboards.choosing_type_of_task)
+    await state.set_state(Task.type)
+
+@router.callback_query(Task.type)
+async def choose_type(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    complexity = data.get('complexity')
+    type = ''
+    tmp_type = callback.data 
+    if (tmp_type == 'symbol'):
+        type = "символьного"
+    else:
+        type = "шифрового"
+    await callback.message.answer(f'Вы выбрали {complexity} задачу {type} типа. \nГенерируем...')
+    await callback.message.answer(f'Вот ваша задача! (текст) \nВведите ответ сообщением')
+    await state.clear()
 
 # ZAGLUSHKA for giving random task
 @router.message(F.text == 'Случайная задача')
 async def task_from_category(message: Message):
-    await message.answer('Вот ваша задача (текст)')
+    await message.answer('Вот ваша задача! (текст) \nВведите ответ сообщением')

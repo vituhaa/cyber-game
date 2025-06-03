@@ -9,4 +9,10 @@ main_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Случайна
 task_from_category = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Простая', callback_data='easy')],
     [InlineKeyboardButton(text='Средняя', callback_data='normal')],
-    [InlineKeyboardButton(text='Сложная', callback_data='hard')]])
+    [InlineKeyboardButton(text='Сложная', callback_data='hard')]
+])
+
+choosing_type_of_task = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Шифр', callback_data='cypher')],
+    [InlineKeyboardButton(text='Символьные', callback_data='symbol')]
+])
