@@ -38,7 +38,14 @@ def get_or_create_user(user_tg_id, name):
         cur.execute("INSERT INTO User (user_tg_id, name, role, rating, solved_count) VALUES (?, ?, 'user', 0, 0)",
                     (user_tg_id, name))
         return cur.lastrowid
-
+    
+def get_username_by_tg_id(user_tg_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT name FROM User WHERE user_tg_id = ?", (user_tg_id,))
+        row = cur.fetchone() 
+        return row[0] if row else None
+    
 def update_user_score(user_id, score_delta, increment_solved=False):
     with connect() as conn:
         cur = conn.cursor()
