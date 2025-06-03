@@ -63,3 +63,12 @@ async def get_user_name(message: Message, state: FSMContext):
     else:
         await message.answer('Ошибка регистрации!')
     await state.clear() # clear states
+
+@router.message(F.text == 'Задача из категории')
+async def task_from_category(message: Message):
+    await message.answer('Выберите сложность задачи', reply_markup=keyboards.task_from_category)
+
+# ZAGLUSHKA for giving random task
+@router.message(F.text == 'Случайная задача')
+async def task_from_category(message: Message):
+    await message.answer('Вот ваша задача (текст)')
