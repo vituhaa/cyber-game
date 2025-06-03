@@ -91,6 +91,13 @@ async def hard(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer('Выберите тип задачи', reply_markup=keyboards.choosing_type_of_task)
     await state.set_state(Task.type)
 
+# ZAGLUSHKA for giving task from category
+# запрос к БД, выбор любой задачи с соответствующими характеристиками 
+# заглушка для контроллера, на вход которой подаю сложность и тип задачи
+async def giving_task_from_category(complexity: int, type: int) -> str:
+    # Controller sends complexity and type of task to db
+    print(f'Вы выбрали {complexity} задачу {type} типа. \nГенерируем...')
+
 @router.callback_query(Task.type)
 async def choose_type(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -102,10 +109,19 @@ async def choose_type(callback: CallbackQuery, state: FSMContext):
     else:
         type = "шифрового"
     await callback.message.answer(f'Вы выбрали {complexity} задачу {type} типа. \nГенерируем...')
+    # calling ZAGLUSHKA for giving task from category
+    task_complexity_and_type = await giving_task_from_category(complexity, type)
     await callback.message.answer(f'Вот ваша задача! (текст) \nВведите ответ сообщением')
     await state.clear()
 
+
 # ZAGLUSHKA for giving random task
+async def giving_random_task(id: int) -> str:
+    # Controller sends text of task to db
+    print(f'Вы выбрали случайную задачу. \nГенерируем...')
+
 @router.message(F.text == 'Случайная задача')
 async def task_from_category(message: Message):
+    await message.answer('Вы выбрали случайную задачу. \nГенерируем...')
+    random_task = await giving_random_task(id)
     await message.answer('Вот ваша задача! (текст) \nВведите ответ сообщением')
