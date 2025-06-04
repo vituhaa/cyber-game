@@ -70,19 +70,19 @@ async def get_user_name_from_db(user_id: int) -> str:
 
 @router.message(Command('help')) # /help
 async def send_game_rules(message: Message):
-    await message.answer('Правила игры очень просты. Тебе нужно будет разгадывать разнообразные шифры, решая задачи.\n\
-        \nЗа верное решение ты будешь получать баллы в зависимости от уровня сложности. Чем больше и труднее решишь, тем выше твой рейтинг среди других игроков.\
-        \nУ каждой задачи есть подсказки. При их использовании количество баллов за решение снижается.\
-        \nЧтобы посмотреть свой рейтинг - нажми на кнопку "Посмотреть статистику".\n\
-        \nТы можешь играть один или участвовать в соревнованиях.\
+    await message.answer('Правила игры очень просты. Вам нужно будет разгадывать разнообразные шифры, решая задачи.\n\
+        \n⭐️  За верное решение Вы будете получать баллы в зависимости от уровня сложности. Чем больше и труднее решите, тем выше Ваш рейтинг среди других игроков.\
+        \n💡  У каждой задачи есть подсказки. При их использовании количество баллов за решение снижается.\
+        \n💯  Чтобы посмотреть свой рейтинг - нажмите на кнопку "Посмотреть статистику".\n\
+        \nВы можете играть один или участвовать в соревнованиях.\
         \nДля одиночной игры на клавиатуре есть команды:\
-        \n"Случайная задача" - бот пришлёт тебе любую задачу из базы\
-        \n"Задача из категории" - ты сможешь выбрать для себя задачу конкретного вида и уровня сложности\n\
+        \n❓️  "Случайная задача" - бот пришлёт Вам любую задачу из базы.\
+        \n✔️  "Задача из категории" - Вы сможете выбрать для себя задачу конкретного вида и уровня сложности.\n\
         \nСоревнование позволяет состязаться в решении задач с другими пользователями на скорость.\
  Бот сам предложит задания и по количеству верных ответов и набранных баллов определит победителя.\
-        \nТакая игра проходит в виртуальных комнатах, которые ты сможешь создавать сам или присоединиться к существующей.\
-        \nЧтобы попробовать - нажми "Соревнование".\n\
-        \nНапиши /help чтобы снова увидеть правила')
+        \nТакая игра проходит в виртуальных комнатах, которые Вы сможете создавать сами или присоединиться к существующей.\
+        \n🏆  Чтобы попробовать - нажмите "Соревнование".\n\
+        \nНапишите /help чтобы снова увидеть правила')
     
 @router.message(User.name)
 async def get_user_name(message: Message, state: FSMContext):
@@ -170,7 +170,7 @@ async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, 
         f"📌 *{title}*\n\n"
         f"📝 *Описание:* {description}\n\n"
         f"❓ *Вопрос:* {question}\n\n"
-        f"(Введите ваш ответ сообщением)"
+        f"(Введите Ваш ответ сообщением)"
     )
     await callback.message.answer(task_text, parse_mode='Markdown')
     await state.set_state(Answer.answer)
@@ -228,6 +228,10 @@ async def giving_hint(state: FSMContext) -> str:
     data = await state.get_data()
     task_id = data.get("task_id")
     hint_count = data.get("hint_count", 0)  # hint_count уже увеличен в основном хэндлере
+    hints_exhausted = data.get("hints_exhausted", False)
+    
+    if hints_exhausted:
+        return "🔒 Все подсказки уже использованы для этой задачи!"
 
     hint = get_hint_by_taskid_ordernum(task_id, hint_count)
     if hint:
@@ -236,31 +240,51 @@ async def giving_hint(state: FSMContext) -> str:
     else:
         return "🔒 Все подсказки уже использованы для этой задачи!"
 
-
+async def are_there_any_hints(task_id: int, hint_count: int) -> bool: # checking hints
+    hint = get_hint_by_taskid_ordernum(task_id, hint_count + 1)
+    return hint is not None
+    
 @router.callback_query(F.data == "yes")
 async def getting_hint(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     user_id = data.get("user_id")
-    hint_count = data.get("hint_count", 0) + 1  # увеличиваем счётчик
-    await state.update_data(hint_count=hint_count)
-
     task_id = data.get("task_id")
-    hint = get_hint_by_taskid_ordernum(task_id, hint_count)
-
-    if hint is None:
-        await state.update_data(hints_exhausted=True)
+    hint_count = data.get("hint_count", 0)
+    hints_exhausted = data.get("hints_exhausted", False)
+    
+    if hints_exhausted:
         await callback.message.answer(
             "🔒 Количество подсказок иссякло. Сдаться?",
             reply_markup=keyboards.exit_game_after_hints_turn_zero
         )
-    else:
+        await callback.answer()
+        return
+    
+    if not await are_there_any_hints(task_id, hint_count):
+        await state.upgrade_data(hints_exhausted=True)
+        await callback.message.answer(
+            "🔒 Количество подсказок иссякло. Сдаться?",
+            reply_markup=keyboards.exit_game_after_hints_turn_zero
+        )
+        await callback.answer()
+        return
+
+    hint_count += 1
+    await state.update_data(hint_count=hint_count)
+    hint = get_hint_by_taskid_ordernum(task_id, hint_count)
+    if hint:
         text, penalty = hint
         update_user_score(user_id, -penalty)
         print(user_id, penalty)
         await callback.message.answer(
             f"💡 Подсказка: {text}\n\n💸 Штраф: -{penalty} баллов"
         )
-
+    else:
+        await state.update_data(hints_exhausted=True)
+        await callback.message.answer(
+            "🔒 Количество подсказок иссякло. Сдаться?",
+            reply_markup=keyboards.exit_game_after_hints_turn_zero
+        )
     await state.set_state(Answer.answer)
     await callback.answer()
 
@@ -277,6 +301,8 @@ async def comparing_answer(message: Message, state: FSMContext):
     user_answer = message.text.strip()
     data = await state.get_data()
     task_id = data.get("task_id")
+    hint_count = data.get("hint_count", 0)
+    hints_exhausted = data.get("hints_exhausted", False)
 
     if task_id is None:
         await message.answer("Ошибка: ID задачи не найден.")
@@ -287,7 +313,14 @@ async def comparing_answer(message: Message, state: FSMContext):
             "Ответ верный! Вы получаете n баллов. \nМожете выбрать другую задачу или другой игровой режим")
         await state.clear()
     else:
-        await message.answer(
-            "Ответ неверный! Попробуйте заново или возьмите подсказку.",
-            reply_markup=keyboards.choosing_hint_or_not
-        )
+        if not hints_exhausted and await are_there_any_hints(task_id, hint_count):
+            await message.answer(
+                "Ответ неверный! Попробуйте заново или возьмите подсказку.",
+                reply_markup=keyboards.choosing_hint_or_not
+            )
+        else:
+            await state.update_data(hints_exhausted=True)
+            await message.answer("Ответ неверный!\n"
+                "🔒 Количество подсказок иссякло. Сдаться?",
+                reply_markup=keyboards.exit_game_after_hints_turn_zero
+            )
