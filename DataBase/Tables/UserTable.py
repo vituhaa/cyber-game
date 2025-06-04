@@ -46,18 +46,18 @@ def get_username_by_tg_id(user_tg_id):
         row = cur.fetchone() 
         return row[0] if row else None
     
-def update_user_score(user_id, score_delta, increment_solved=False):
+def update_user_score(user_tg_id, score_delta, increment_solved=False):
     with connect() as conn:
         cur = conn.cursor()
         if increment_solved:
-            cur.execute("UPDATE User SET rating = rating + ?, solved_count = solved_count + 1 WHERE id = ?",
-                        (score_delta, user_id))
+            cur.execute("UPDATE User SET rating = rating + ?, solved_count = solved_count + 1 WHERE user_tg_id = ?",
+                        (score_delta, user_tg_id))
         else:
-            cur.execute("UPDATE User SET rating = rating + ? WHERE id = ?",
-                        (score_delta, user_id))
+            cur.execute("UPDATE User SET rating = rating + ? WHERE user_tg_id = ?",
+                        (score_delta, user_tg_id))
 
-def get_user_stats(user_id):
+def get_user_stats(user_tg_id):
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT rating, solved_count FROM User WHERE id = ?", (user_id,))
+        cur.execute("SELECT rating, solved_count FROM User WHERE user_tg_id = ?", (user_tg_id,))
         return cur.fetchone()
