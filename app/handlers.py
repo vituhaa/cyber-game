@@ -4,6 +4,16 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 
+from DataBase.Tables.HintTable import *
+from DataBase.Tables.RoomParticipants import *
+from DataBase.Tables.RoomTable import *
+from DataBase.Tables.RoomTasksTable import *
+from DataBase.Tables.TaskTable import *
+from DataBase.Tables.TaskTypeTable import *
+from DataBase.Tables.TaskAttemptsTable import *
+from DataBase.Tables.UserTable import *
+
+
 import app.keyboards as keyboards
 
 router = Router()
@@ -19,25 +29,44 @@ class Answer(StatesGroup):
     answer_type = State()
 
 
-@router.message(CommandStart()) # decorator for \start message
+@router.message(CommandStart())
 async def command_start(message: Message, state: FSMContext):
-    await message.answer('Привет! Это кибер-игра для студентов НИУ ВШЭ.\
-\nЗдесь ты сможешь решать интересные задачи, разгадывать шифры\
- и соревноваться с другими пользователями')
-    await state.set_state(User.name) # state for waiting entering name
-    await message.answer('Прежде чем играть, нужно зарегистрироваться!\nКак тебя зовут?')
+    user_id = message.from_user.id
 
-#ZAGLUSHKA for saving user in db
+    user_name = await get_user_name_from_db(user_id)
+    await state.update_data(user_id=user_id)
+
+    if user_name and user_name != "Имя не найдено":
+        await message.answer(f'Рады видеть Вас снова, {user_name}!', reply_markup=keyboards.main_menu)
+        await send_game_rules(message)
+        await state.clear()
+    else:
+        await message.answer(
+            'Привет! Это кибер-игра для студентов НИУ ВШЭ.\n'
+            'Здесь ты сможешь решать интересные задачи, разгадывать шифры '
+            'и соревноваться с другими пользователями'
+        )
+        await state.set_state(User.name)
+        await message.answer('Прежде чем играть, нужно зарегистрироваться!\nКак тебя зовут?')
+
+
 async def register_user(user_id: int, name: str) -> bool:
-        # Controller sends user_id, name to db
-        print(f"Регистрация пользователя {user_id} с именем '{name}'")
+    print(f"Регистрация пользователя {user_id} с именем '{name}'")
+    try:
+        get_or_create_user(user_id, name)
         return True
+    except Exception as e:
+        print(f"Ошибка при регистрации пользователя: {e}")
+        return False
     
-#ZAGLUSHKA for getting user name from db
 async def get_user_name_from_db(user_id: int) -> str:
-    # Controller sends user_id to db, gets name and sends to bot
     print(f"Получение имени для пользователя {user_id}")
-    return "Твоё имя"
+    try:
+        name = get_username_by_tg_id(user_id)
+        return name if name else "Имя не найдено"
+    except Exception as e:
+        print(f"Ошибка при получении имени пользователя: {e}")
+        return "Ошибка"
 
 @router.message(Command('help')) # /help
 async def send_game_rules(message: Message):
@@ -59,10 +88,8 @@ async def send_game_rules(message: Message):
 async def get_user_name(message: Message, state: FSMContext):
     await state.update_data(name=message.text) # save username in User field name
     
-    #ZAGLUSHKA for saving user in db
     registration_success = await register_user(user_id=message.from_user.id, name=message.text)
     
-    #ZAGLUSHKA for getting user name from db
     user_name = await get_user_name_from_db(message.from_user.id)
     
     if registration_success:
@@ -97,105 +124,170 @@ async def hard(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Task.type)
 
 
-# ZAGLUSHKA for giving task from category
-# запрос к БД, выбор любой задачи с соответствующими характеристиками 
-# заглушка для контроллера, на вход которой подаю сложность и тип задачи
-async def giving_task_from_category(complexity: int, type: int) -> str:
-    # Controller asks complexity and type of task from db
-    print(f'Вы выбрали {complexity} задачу {type} типа. \nГенерируем...')
+async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, complexity: str, type_name: str):
+    """
+    complexity: строка 'лёгкую', 'среднюю', 'сложную'
+    """
+    type_name_map = {
+        "шифрового": "cipher",
+        "символьного": "symbol"
+    }
+
+    difficulty_map = {'лёгкую': 1, 'среднюю': 2, 'сложную': 3}
+    difficulty = difficulty_map.get(complexity)
+    print(f"[DEBUG] giving_task_from_category: complexity='{complexity}' -> difficulty={difficulty}, type_name='{type_name}'")
+
+    if difficulty is None:
+        await callback.message.answer("Не удалось распознать сложность задачи.")
+        return
+
+    db_type_name = type_name_map.get(type_name)
+    if db_type_name is None:
+        await callback.message.answer("Неизвестный тип задачи.")
+        return
+
+    type_id = get_type_id_by_name(db_type_name)
+    print(f"[DEBUG] giving_task_from_category: type_id для '{db_type_name}' = {type_id}")
+
+    if type_id is None:
+        await callback.message.answer("Не удалось найти тип задачи в базе данных.")
+        return
+
+    print(f"[DEBUG] giving_task_from_category: пытаемся получить задачу с type_id={type_id} и difficulty={difficulty}")
+    task = get_task_by_category_and_difficulty(type_id, difficulty)
+    print(f"[DEBUG] giving_task_from_category: задача из базы: {task}")
+
+    if task is None:
+        await callback.message.answer("Не удалось найти задачу с указанными параметрами.")
+        return
+
+    task_id, title, type_id, difficulty, description, question, correct_answer, solution = task[:8]
+
+    await state.update_data(task_id=task_id)
+    await state.update_data(user_id=callback.from_user.id)
+
+    task_text = (
+        f"📌 *{title}*\n\n"
+        f"📝 *Описание:* {description}\n\n"
+        f"❓ *Вопрос:* {question}\n\n"
+        f"(Введите ваш ответ сообщением)"
+    )
+    await callback.message.answer(task_text, parse_mode='Markdown')
+    await state.set_state(Answer.answer)
 
 
-# choosing type of task, text about task added and after that we can write an answer 
+
+
 @router.callback_query(Task.type)
 async def choose_type(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     complexity = data.get('complexity')
-    type = ''
-    tmp_type = callback.data 
-    if (tmp_type == 'symbol'):
-        type = "символьного"
+    print(f"[DEBUG] choose_type: complexity из state = '{complexity}'")
+
+
+    tmp_type = callback.data
+    if tmp_type == 'symbol':
+        type_name = "символьного"
     else:
-        type = "шифрового"
-    await callback.message.answer(f'Вы выбрали {complexity} задачу {type} типа. \nГенерируем...')
-    # calling ZAGLUSHKA for giving task from category
-    task_complexity_and_type = await giving_task_from_category(complexity, type)
-    await callback.message.answer(f'Вот ваша задача! (текст) \nВведите ответ сообщением')
-    await state.set_state(Answer.answer)
+        type_name = "шифрового"
+
+    await callback.message.answer(f'Вы выбрали {complexity} задачу {type_name} типа. \nГенерируем...')
+    await state.update_data(user_id=callback.from_user.id)
+
+    await giving_task_from_category(callback, state, complexity, type_name)
 
 
-# ZAGLUSHKA for giving random task
-async def giving_random_task() -> str:
-    # Controller asks text of task from db
-    print(f'Вы выбрали случайную задачу. \nГенерируем...')
 
-
-# if we choose random task, this message appear and after that we can write an answer 
 @router.message(F.text == 'Случайная задача')
 async def task_from_category(message: Message, state: FSMContext):
     await message.answer('Вы выбрали случайную задачу. \nГенерируем...')
-    random_task = await giving_random_task()
-    await message.answer('Вот ваша задача! (текст) \nВведите ответ сообщением')
+
+    task = get_random_task()
+    print(task)
+    if task is None:
+        await message.answer("Не удалось найти задачу в базе данных.")
+        return
+
+    task_id, title, type_id, difficulty, description, question, correct_answer, solution = task[:8]
+
+    await state.update_data(task_id=task_id)
+    await state.update_data(user_id=message.from_user.id)
+
+    task_text = (
+        f"📌 *{title}*\n\n"
+        f"📝 *Описание:* {description}\n\n"
+        f"❓ *Вопрос:* {question}\n\n"
+        f"(Введите ваш ответ сообщением)"
+    )
+    await message.answer(task_text, parse_mode='Markdown')
     await state.set_state(Answer.answer)
 
 
-# example of db 
-correct_answers_db = {
-    "444": "444",
-    "lala": "lala"
-}
+
+async def giving_hint(state: FSMContext) -> str:
+    data = await state.get_data()
+    task_id = data.get("task_id")
+    hint_count = data.get("hint_count", 0)  # hint_count уже увеличен в основном хэндлере
+
+    hint = get_hint_by_taskid_ordernum(task_id, hint_count)
+    if hint:
+        text, penalty = hint
+        return f"💡 Подсказка: {text}\n\n💸 Штраф: -{penalty} баллов"
+    else:
+        return "🔒 Все подсказки уже использованы для этой задачи!"
 
 
-# ZAGLUSHKA for getting answer from db
-async def get_answer_from_db(correct_answer: str) -> str:
-    # Controller sends user_id to db, gets name and sends to bot
-    print(f"Получение правильного ответа к задаче: {correct_answer}")
-    return correct_answers_db.get(correct_answer, "")
-    # return "Правильный ответ"
-
-
-# ZAGLUSHKA for giving hint
-async def giving_hint() -> str:
-    # Controller asks text of hint from db
-    print(f'Вы выбрали подсказку.')
-    return "подсказка"
-
-
-# if we choose hint
 @router.callback_query(F.data == "yes")
 async def getting_hint(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    hint_count = data.get("hint_count", 0) + 1  # count of used hints
+    user_id = data.get("user_id")
+    hint_count = data.get("hint_count", 0) + 1  # увеличиваем счётчик
     await state.update_data(hint_count=hint_count)
-    if (hint_count > 3):
-        await callback.message.answer("Количество подсказок иссякло. Сдаться?", reply_markup=keyboards.exit_game_after_hints_turn_zero)
-    hint = await giving_hint()
-    await callback.message.answer(f"{hint}")
+
+    task_id = data.get("task_id")
+    hint = get_hint_by_taskid_ordernum(task_id, hint_count)
+
+    if hint is None:
+        await state.update_data(hints_exhausted=True)
+        await callback.message.answer(
+            "🔒 Количество подсказок иссякло. Сдаться?",
+            reply_markup=keyboards.exit_game_after_hints_turn_zero
+        )
+    else:
+        text, penalty = hint
+        update_user_score(user_id, -penalty)
+        print(user_id, penalty)
+        await callback.message.answer(
+            f"💡 Подсказка: {text}\n\n💸 Штраф: -{penalty} баллов"
+        )
+
     await state.set_state(Answer.answer)
     await callback.answer()
 
 
-# if we choose to give up after having 0 hints
+
 @router.callback_query(F.data == "give_up")
 async def giving_up(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Вы можете заново выбрать игровой режим.")
     await state.clear()
 
 
-# answer controller
 @router.message(Answer.answer)
-async def get_user_answer(message: Message, state: FSMContext):
+async def comparing_answer(message: Message, state: FSMContext):
     user_answer = message.text.strip()
     data = await state.get_data()
-    correct_key = data.get("correct_key", "444")
-    correct_answer = await get_answer_from_db(correct_key)
-    if user_answer == correct_answer:
-        await message.answer("Ответ верный! Вы получаете n баллов. \nМожете выбрать другую задачу или другой игровой режим")
+    task_id = data.get("task_id")
+
+    if task_id is None:
+        await message.answer("Ошибка: ID задачи не найден.")
+        return
+
+    if check_answer(task_id, user_answer):
+        await message.answer(
+            "Ответ верный! Вы получаете n баллов. \nМожете выбрать другую задачу или другой игровой режим")
         await state.clear()
     else:
-        await message.answer("Ответ неверный! Попробуйте заново или возьмите подсказку.", reply_markup=keyboards.choosing_hint_or_not) # choosing hint 
-            
-    
-
-
-    
-
+        await message.answer(
+            "Ответ неверный! Попробуйте заново или возьмите подсказку.",
+            reply_markup=keyboards.choosing_hint_or_not
+        )
