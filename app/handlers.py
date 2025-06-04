@@ -14,6 +14,11 @@ class User(StatesGroup): # user data for registration
 class Task(StatesGroup):
     type = State()
 
+class Answer(StatesGroup):
+    answer = State()
+    answer_type = State()
+
+
 @router.message(CommandStart()) # decorator for \start message
 async def command_start(message: Message, state: FSMContext):
     await message.answer('Привет! Это кибер-игра для студентов НИУ ВШЭ.\
@@ -91,13 +96,16 @@ async def hard(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer('Выберите тип задачи', reply_markup=keyboards.choosing_type_of_task)
     await state.set_state(Task.type)
 
+
 # ZAGLUSHKA for giving task from category
 # запрос к БД, выбор любой задачи с соответствующими характеристиками 
 # заглушка для контроллера, на вход которой подаю сложность и тип задачи
 async def giving_task_from_category(complexity: int, type: int) -> str:
-    # Controller sends complexity and type of task to db
+    # Controller asks complexity and type of task from db
     print(f'Вы выбрали {complexity} задачу {type} типа. \nГенерируем...')
 
+
+# choosing type of task, text about task added and after that we can write an answer 
 @router.callback_query(Task.type)
 async def choose_type(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -112,16 +120,82 @@ async def choose_type(callback: CallbackQuery, state: FSMContext):
     # calling ZAGLUSHKA for giving task from category
     task_complexity_and_type = await giving_task_from_category(complexity, type)
     await callback.message.answer(f'Вот ваша задача! (текст) \nВведите ответ сообщением')
-    await state.clear()
+    await state.set_state(Answer.answer)
 
 
 # ZAGLUSHKA for giving random task
-async def giving_random_task(id: int) -> str:
-    # Controller sends text of task to db
+async def giving_random_task() -> str:
+    # Controller asks text of task from db
     print(f'Вы выбрали случайную задачу. \nГенерируем...')
 
+
+# if we choose random task, this message appear and after that we can write an answer 
 @router.message(F.text == 'Случайная задача')
-async def task_from_category(message: Message):
+async def task_from_category(message: Message, state: FSMContext):
     await message.answer('Вы выбрали случайную задачу. \nГенерируем...')
-    random_task = await giving_random_task(id)
+    random_task = await giving_random_task()
     await message.answer('Вот ваша задача! (текст) \nВведите ответ сообщением')
+    await state.set_state(Answer.answer)
+
+
+# example of db 
+correct_answers_db = {
+    "444": "444",
+    "lala": "lala"
+}
+
+
+# ZAGLUSHKA for getting answer from db
+async def get_answer_from_db(correct_answer: str) -> str:
+    # Controller sends user_id to db, gets name and sends to bot
+    print(f"Получение правильного ответа к задаче: {correct_answer}")
+    return correct_answers_db.get(correct_answer, "")
+    # return "Правильный ответ"
+
+
+# ZAGLUSHKA for giving hint
+async def giving_hint() -> str:
+    # Controller asks text of hint from db
+    print(f'Вы выбрали подсказку.')
+    return "подсказка"
+
+
+# if we choose hint
+@router.callback_query(F.data == "yes")
+async def getting_hint(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    hint_count = data.get("hint_count", 0) + 1  # count of used hints
+    await state.update_data(hint_count=hint_count)
+    if (hint_count > 3):
+        await callback.message.answer("Количество подсказок иссякло. Сдаться?", reply_markup=keyboards.exit_game_after_hints_turn_zero)
+    hint = await giving_hint()
+    await callback.message.answer(f"{hint}")
+    await state.set_state(Answer.answer)
+    await callback.answer()
+
+
+# if we choose to give up after having 0 hints
+@router.callback_query(F.data == "give_up")
+async def giving_up(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("Вы можете заново выбрать игровой режим.")
+    await state.clear()
+
+
+# answer controller
+@router.message(Answer.answer)
+async def get_user_answer(message: Message, state: FSMContext):
+    user_answer = message.text.strip()
+    data = await state.get_data()
+    correct_key = data.get("correct_key", "444")
+    correct_answer = await get_answer_from_db(correct_key)
+    if user_answer == correct_answer:
+        await message.answer("Ответ верный! Вы получаете n баллов. \nМожете выбрать другую задачу или другой игровой режим")
+        await state.clear()
+    else:
+        await message.answer("Ответ неверный! Попробуйте заново или возьмите подсказку.", reply_markup=keyboards.choosing_hint_or_not) # choosing hint 
+            
+    
+
+
+    
+

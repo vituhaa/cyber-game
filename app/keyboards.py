@@ -16,3 +16,11 @@ choosing_type_of_task = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Шифр', callback_data='cypher')],
     [InlineKeyboardButton(text='Символьные', callback_data='symbol')]
 ])
+
+choosing_hint_or_not = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Взять подсказку', callback_data='yes')],
+])
+
+exit_game_after_hints_turn_zero = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Сдаться', callback_data='give_up')],
+])
