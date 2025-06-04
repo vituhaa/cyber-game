@@ -176,7 +176,11 @@ async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, 
     await state.set_state(Answer.answer)
 
 
-
+# ZAGLUSHKA for giving task solution from bd
+async def get_task_solution_from_db(task_id: int) -> str:
+    # function from db
+    solution = 'Лучшее решение - лечь спать' # from db
+    return solution
 
 @router.callback_query(Task.type)
 async def choose_type(callback: CallbackQuery, state: FSMContext):
@@ -292,7 +296,14 @@ async def getting_hint(callback: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "give_up")
 async def giving_up(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer("Вы можете заново выбрать игровой режим.")
+    data = await state.get_data()
+    task_id = data.get("task_id")
+    
+    # ZAGLUSHKA for giving task solution from bd
+    solution = await get_task_solution_from_db(task_id)
+    
+    await callback.message.answer(f"Вот разбор решения задачи:\n{solution}")
+    await callback.message.answer("Теперь Вы можете заново выбрать игровой режим.")
     await state.clear()
 
 
@@ -308,9 +319,14 @@ async def comparing_answer(message: Message, state: FSMContext):
         await message.answer("Ошибка: ID задачи не найден.")
         return
 
+
     if check_answer(task_id, user_answer):
+        # ZAGLUSHKA for giving task solution from bd
+        solution = await get_task_solution_from_db(task_id)
+        
         await message.answer(
             "Ответ верный! Вы получаете n баллов. \nМожете выбрать другую задачу или другой игровой режим")
+        await message.answer(f"Показываем решение задачи:\n{solution}")
         await state.clear()
     else:
         if not hints_exhausted and await are_there_any_hints(task_id, hint_count):
