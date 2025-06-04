@@ -324,3 +324,43 @@ async def comparing_answer(message: Message, state: FSMContext):
                 "🔒 Количество подсказок иссякло. Сдаться?",
                 reply_markup=keyboards.exit_game_after_hints_turn_zero
             )
+
+# statistics 
+
+# ZAGLUSHKA for checking statistics
+async def get_stats_info(user_id: int) -> str:
+    user = 1 # ?function for checking is this user in the table?
+    if user:
+        # function from db for getting stats
+        place = 3 # place from statistics
+        count_tasks = 11 # count from statistics
+        statistics = str(place) + '+' + str(count_tasks) # statistics = '11+11'
+        return statistics
+    else:
+        return '0' # no information about user
+          
+@router.message(F.text == 'Посмотреть статистику')
+async def check_statistics(message: Message):
+    user_id = message.from_user.id
+    # ZAGLUSHKA for checking statistics
+    statistics = await get_stats_info(user_id)
+    
+    if statistics != '0':
+        stats_data = statistics.split('+')
+        place = int(stats_data[0])
+        count_tasks = stats_data[1]
+        name = await get_user_name_from_db(user_id)
+        
+        emoji = ''
+        if place == 1:
+            emoji = '🥇'
+        elif place == 2:
+            emoji = '🥈'
+        elif place == 3:
+            emoji = '🥉'
+        else:
+            emoji = '🔹️'
+        await message.answer(f'{name}, вот Ваша игровая статистика:\n'
+                            f'{emoji}  Место в топе игроков: {place}\n'
+                            f'✅️  Решено задач: {count_tasks}')
+        
