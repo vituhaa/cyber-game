@@ -91,4 +91,19 @@ def get_next_hint(user_id, task_id):
 
         # Получаем следующую подсказку
         return get_hint_by_taskid_ordernum(task_id,used_hints+1)
-        
+
+def is_task_solved(user_id, task_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT is_correct FROM Task_Attempt
+            WHERE user_id = ? AND task_id = ?
+            ORDER BY solved_at DESC LIMIT 1
+        """, (user_id, task_id))
+        row = cur.fetchone()
+        solved = row[0] if row else 0
+
+        if solved == 0:
+            return False
+        else:
+            return True
