@@ -61,3 +61,10 @@ def get_user_stats(user_tg_id):
         cur = conn.cursor()
         cur.execute("SELECT rating, solved_count FROM User WHERE user_tg_id = ?", (user_tg_id,))
         return cur.fetchone()
+
+def get_user_role(user_tg_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT role FROM User WHERE user_tg_id = ?", (user_tg_id,))
+        row = cur.fetchone()
+        return row[0] if row else None
