@@ -77,3 +77,11 @@ def create_task(title, type_id, difficulty, description, question, correct_answe
             VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (title, type_id, difficulty, description, question, correct_answer, solution))
         return cur.lastrowid
+
+
+def get_task_difficulty(task_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT difficulty FROM Task WHERE id = ?", (task_id,))
+        row = cur.fetchone()
+        return row[0] if row else None

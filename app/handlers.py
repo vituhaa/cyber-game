@@ -165,6 +165,7 @@ async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, 
 
     await state.update_data(task_id=task_id)
     await state.update_data(user_id=callback.from_user.id)
+    await state.update_data(hint_count=0, hints_exhausted=False)
 
     task_text = (
         f"📌 *{title}*\n\n"
@@ -176,11 +177,14 @@ async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, 
     await state.set_state(Answer.answer)
 
 
-# ZAGLUSHKA for giving task solution from bd
 async def get_task_solution_from_db(task_id: int) -> str:
-    # function from db
-    solution = 'Лучшее решение - лечь спать' # from db
-    return solution
+    try:
+        solution = get_task_solution(task_id)
+        return solution if solution else "Решение не найдено."
+    except Exception as e:
+        print(f"[ERROR] Не удалось получить решение задачи {task_id}: {e}")
+        return "Произошла ошибка при получении решения."
+
 
 @router.callback_query(Task.type)
 async def choose_type(callback: CallbackQuery, state: FSMContext):
@@ -216,6 +220,7 @@ async def task_from_category(message: Message, state: FSMContext):
 
     await state.update_data(task_id=task_id)
     await state.update_data(user_id=message.from_user.id)
+    await state.update_data(hint_count=0, hints_exhausted=False)
 
     task_text = (
         f"📌 *{title}*\n\n"
@@ -265,7 +270,7 @@ async def getting_hint(callback: CallbackQuery, state: FSMContext):
         return
     
     if not await are_there_any_hints(task_id, hint_count):
-        await state.upgrade_data(hints_exhausted=True)
+        await state.updade_data(hints_exhausted=True)
         await callback.message.answer(
             "🔒 Количество подсказок иссякло. Сдаться?",
             reply_markup=keyboards.exit_game_after_hints_turn_zero
@@ -299,7 +304,6 @@ async def giving_up(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     task_id = data.get("task_id")
     
-    # ZAGLUSHKA for giving task solution from bd
     solution = await get_task_solution_from_db(task_id)
     
     await callback.message.answer(f"Вот разбор решения задачи:\n{solution}")
@@ -319,41 +323,74 @@ async def comparing_answer(message: Message, state: FSMContext):
         await message.answer("Ошибка: ID задачи не найден.")
         return
 
-
+    # Если ответ верный — начисляем очки и увеличиваем счётчик задач
     if check_answer(task_id, user_answer):
-        # ZAGLUSHKA for giving task solution from bd
+        # 1) Берём сложность задачи из БД (1, 2 или 3)
+        difficulty = get_task_difficulty(task_id)
+        if difficulty is None:
+            # На всякий случай, если по какой-то причине не удалось получить difficulty
+            difficulty = 1
+
+        # 2) Считаем количество очков
+        score_delta = difficulty * 100
+
+        # 3) Обновляем рейтинг пользователя: добавляем score_delta и инкрементируем solved_count
+        update_user_score(
+            user_tg_id=message.from_user.id,
+            score_delta=score_delta,
+            increment_solved=True
+        )
+
+        # 4) Получаем решение из БД и отправляем пользователю
         solution = await get_task_solution_from_db(task_id)
-        
+
         await message.answer(
-            "Ответ верный! Вы получаете n баллов. \nМожете выбрать другую задачу или другой игровой режим")
+            f"✅ Ответ верный! Вы получаете {score_delta} баллов и +1 к количеству решённых задач.\n"
+            f"Можете выбрать другую задачу или другой игровой режим."
+        )
         await message.answer(f"Показываем решение задачи:\n{solution}")
         await state.clear()
+
     else:
+        # Если ответ неверный и есть ещё подсказки
         if not hints_exhausted and await are_there_any_hints(task_id, hint_count):
             await message.answer(
-                "Ответ неверный! Попробуйте заново или возьмите подсказку.",
+                "❌ Ответ неверный! Попробуйте ещё раз или возьмите подсказку.",
                 reply_markup=keyboards.choosing_hint_or_not
             )
         else:
+            # Подсказки закончились
             await state.update_data(hints_exhausted=True)
-            await message.answer("Ответ неверный!\n"
+            await message.answer(
+                "❌ Ответ неверный!\n"
                 "🔒 Количество подсказок иссякло. Сдаться?",
                 reply_markup=keyboards.exit_game_after_hints_turn_zero
             )
 
 # statistics 
-
-# ZAGLUSHKA for checking statistics
 async def get_stats_info(user_id: int) -> str:
-    user = 1 # ?function for checking is this user in the table?
-    if user:
-        # function from db for getting stats
-        place = 3 # place from statistics
-        count_tasks = 11 # count from statistics
-        statistics = str(place) + '+' + str(count_tasks) # statistics = '11+11'
+    user_stats = get_user_stats(user_id)
+
+    if user_stats:
+        user_rating, solved_count = user_stats
+
+        # Получаем место в топе по рейтингу
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT COUNT(*) + 1
+                FROM User
+                WHERE rating > (
+                    SELECT rating FROM User WHERE user_tg_id = ?
+                )
+            """, (user_id,))
+            place_row = cur.fetchone()
+            place = place_row[0] if place_row else 0
+
+        statistics = f"{place}+{solved_count}"
         return statistics
     else:
-        return '0' # no information about user
+        return '0'  # пользователь не найден в таблице
           
 @router.message(F.text == 'Посмотреть статистику')
 async def check_statistics(message: Message):
