@@ -1,5 +1,5 @@
 from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
 from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
@@ -50,6 +50,22 @@ async def get_room_users(room_id: int) -> list[str]:
         names.append(await get_user_name_from_db(id_s[i]))
     return names
 
+# ZAGLUSHKA add user in random room
+async def add_user_in_random_room(user_id: int) -> int:
+    # function for finding random room 
+    all_rooms = [123, 124, 125]
+    random_room = random.choice(all_rooms)
+    print(f'DEBUG: {random_room}')
+    return random_room
+
+@comp_router.message(F.text == 'Начать соревнование')
+async def start_competition(message: Message):
+    await message.answer('У вас есть пять минут на решение задач. Время пошло!')
+
+@comp_router.message(F.text == "Выйти из соревнования")
+async def exit_competition(message: Message):
+    await message.answer('Вы вышли из режима соревнования!', reply_markup=ReplyKeyboardRemove())
+    await message.answer('Вы вернулись в главное меню', reply_markup=keyboards.main_menu)
 
 @comp_router.message(F.text == 'Соревнование')
 async def choose_comp_format(message: Message):
@@ -109,11 +125,21 @@ async def create_room(message: Message, state: FSMContext): # common function fo
         # ZAGLUSHKA add user in random room
         await state.set_state(Room_States.in_room)
         await message.answer(f'✅  Вы создали открытую комнату на {count_tasks} задач и пока являетесь единственным игроком.\n'
-                             'Подождите, другие участники скоро присоединятся')
+                             'Подождите, другие участники скоро присоединятся', reply_markup=ReplyKeyboardRemove())
+        await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+        await state.update_data(in_room=True)
+        room_id = 123
+        users_names = await get_room_users(room_id)
+        if users_names:
+            participants = "В комнату добавились:\n" + "\n".join(users_names)
+            await message.answer(participants)
+        else:
+            await message.answer("В комнате пока никого нет.")
     elif success_creation and password != '':
         await message.answer(f'✅  Вы создали закрытую комнату на {count_tasks} задач и пока являетесь единственным игроком.\n'
                              'Отправьте данный пароль другим участникам, чтобы они смогли присоединиться:\n\n'
-                             f'*{password}*', parse_mode='Markdown')
+                             f'*{password}*', parse_mode='Markdown', reply_markup=ReplyKeyboardRemove())
+        await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
     else:
         await message.answer('❌  Не удалось создать комнату.\n'
                              'Возможно Вы указали некорректное число задач')
@@ -137,7 +163,17 @@ async def join_closed_room(message: Message, state: FSMContext):
     is_correct_password = await check_password(password)
     
     if is_correct_password:
-        await message.answer('✅  Вы присоединились к закрытой комнате')
+        await message.answer('✅  Вы присоединились к закрытой комнате', reply_markup=ReplyKeyboardRemove())
+        await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+        await state.set_state(Room_States.in_room)
+        await state.update_data(in_room=True)
+        room_id = 123
+        users_names = await get_room_users(room_id)
+        if users_names:
+            participants = "В комнате присутствуют:\n" + "\n".join(users_names)
+            await message.answer(participants)
+        else:
+            await message.answer("В комнате пока никого нет.")
         await state.clear() 
         # VIKA, your logic (count players, count_tasks, ...)
     
@@ -151,11 +187,16 @@ async def join_closed_room(message: Message, state: FSMContext):
     
 @comp_router.callback_query(F.data == 'join_opened_room')
 async def join_opened_room(callback: CallbackQuery, state: FSMContext):
-    await callback.message.answer('✅  Вы присоединились к открытой комнате')
+    await callback.message.answer('✅  Вы присоединились к открытой комнате', reply_markup=ReplyKeyboardRemove())
+    await callback.message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
     # ZAGLUSHKA add user in random room
     await state.set_state(Room_States.in_room)
     await state.update_data(in_room=True)
     room_id = 123
+    # id_s = [5757254840, 612504339, 786083570, 783367128, 1159819601, 1362082185]
+    # for i in range (len(id_s)):
+    #     user_id = id_s[i]
+    #     room_id = add_user_in_random_room(user_id)
     users_names = await get_room_users(room_id)
     if users_names:
         participants = "В комнате присутствуют:\n" + "\n".join(users_names)

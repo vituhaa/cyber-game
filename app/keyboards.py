@@ -25,6 +25,11 @@ exit_game_after_hints_turn_zero = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Сдаться', callback_data='give_up')],
 ])
 
+start_competition = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Начать соревнование'), KeyboardButton(text='Выйти из соревнования')]],
+                                        resize_keyboard=True,
+                                        input_field_placeholder='Выбери действие')
+
+
 # admin keyboards
 
 admin_actions = InlineKeyboardMarkup(inline_keyboard=[
