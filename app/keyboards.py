@@ -41,3 +41,24 @@ task_category_for_admin = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Шифр', callback_data='cypher_task')],
     [InlineKeyboardButton(text='Символьные', callback_data='symbol_task')]
 ])
+
+# competition keyboards
+actions_with_room = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Присоединиться к комнате', callback_data='join_room')],
+    [InlineKeyboardButton(text='Создать свою комнату', callback_data='create_room')]
+])
+
+# function which create keyboard for 2 actionts: join the room and create the room
+def get_room_type_keyboard(context: str = "") -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text='Открытая', 
+                callback_data=f'{context}_opened_room'
+            ),
+            InlineKeyboardButton(
+                text='Закрытая', 
+                callback_data=f'{context}_closed_room'
+            )
+        ]
+    ])
