@@ -391,7 +391,14 @@ async def get_stats_info(user_id: int) -> str:
         return statistics
     else:
         return '0'  # пользователь не найден в таблице
-          
+         
+async def get_user_score_from_db(user_id: int) -> int:
+    user_stats = get_user_stats(user_id)
+    if user_stats:
+        score = user_stats[0]
+        return score
+    return None
+ 
 @router.message(F.text == 'Посмотреть статистику')
 async def check_statistics(message: Message):
     user_id = message.from_user.id
@@ -403,6 +410,7 @@ async def check_statistics(message: Message):
         place = int(stats_data[0])
         count_tasks = stats_data[1]
         name = await get_user_name_from_db(user_id)
+        score = await get_user_score_from_db(user_id)
         
         emoji = ''
         if place == 1:
@@ -415,5 +423,6 @@ async def check_statistics(message: Message):
             emoji = '🔹️'
         await message.answer(f'{name}, вот Ваша игровая статистика:\n'
                             f'{emoji}  Место в топе игроков: {place}\n'
-                            f'✅️  Решено задач: {count_tasks}')
+                            f'✅️  Решено задач: {count_tasks}\n'
+                            f'💯  Заработано баллов: {score}')
         
