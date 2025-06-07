@@ -137,21 +137,21 @@ async def create_room(message: Message, state: FSMContext): # common function fo
         await state.set_state(Room_States.in_room)
         await message.answer(f'✅  Вы создали открытую комнату на {count_tasks} задач и пока являетесь единственным игроком.\n'
                              'К вам смогут присоединиться любые участники, а также те, кому вы сообщите следующий код подключения:', reply_markup=ReplyKeyboardRemove())
-        await message.answer(f'*{password}*', parse_mode='Markdown')
-        await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+        await message.answer(f'*{password}*', parse_mode='Markdown',  reply_markup=keyboards.start_competition)
+        # await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
         await state.update_data(in_room=True)
-        room_id = 123
-        users_names = await get_room_users(room_id)
-        if users_names:
-            participants = "В комнату добавились:\n" + "\n".join(users_names)
-            await message.answer(participants)
-        else:
-            await message.answer("В комнате пока никого нет.")
+        # room_id = 123
+        # users_names = await get_room_users(room_id)
+        # if users_names:
+        #     participants = "В комнату добавились:\n" + "\n".join(users_names)
+        #     await message.answer(participants)
+        # else:
+        #     await message.answer("В комнате пока никого нет.")
     elif success_creation and access_type == 1:
         await message.answer(f'✅  Вы создали закрытую комнату на {count_tasks} задач и пока являетесь единственным игроком.\n'
                              'Отправьте данный код подключения другим участникам, чтобы они смогли присоединиться:', reply_markup=ReplyKeyboardRemove())
-        await message.answer(f'*{password}*', parse_mode='Markdown')
-        await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+        await message.answer(f'*{password}*', parse_mode='Markdown', reply_markup=keyboards.start_competition)
+        # await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
     else:
         await message.answer('❌  Не удалось создать комнату.\n'
                              'Возможно Вы указали некорректное число задач')
@@ -176,7 +176,7 @@ async def join_closed_room(message: Message, state: FSMContext):
     
     if is_correct_password:
         await message.answer('✅  Вы присоединились к комнате', reply_markup=ReplyKeyboardRemove())
-        await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+        await message.answer(f'Вы можете в любой момент покинуть соревнование.', reply_markup=keyboards.exit_competition)
         await state.set_state(Room_States.in_room)
         await state.update_data(in_room=True)
         room_id = 123
@@ -200,7 +200,7 @@ async def join_closed_room(message: Message, state: FSMContext):
 @comp_router.callback_query(F.data == 'join_opened_room')
 async def join_opened_room(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer('✅  Вы присоединились к комнате', reply_markup=ReplyKeyboardRemove())
-    await callback.message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+    await callback.message.answer(f'Вы можете в любой момент покинуть соревнование.', reply_markup=keyboards.exit_competition)
     # ZAGLUSHKA add user in random room
     await state.set_state(Room_States.in_room)
     await state.update_data(in_room=True)

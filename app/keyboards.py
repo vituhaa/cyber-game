@@ -29,6 +29,10 @@ start_competition = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Нача
                                         resize_keyboard=True,
                                         input_field_placeholder='Выберите действие')
 
+exit_competition = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Выйти из соревнования')]],
+                                        resize_keyboard=True,
+                                        input_field_placeholder='Выберите действие')
+
 
 # admin keyboards
 
