@@ -4,7 +4,7 @@ from aiogram.types import (ReplyKeyboardMarkup, KeyboardButton,
 main_menu = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Случайная задача'), KeyboardButton(text='Задача из категории')],
                                           [KeyboardButton(text='Посмотреть статистику'), KeyboardButton(text='Соревнование')]],
                                 resize_keyboard=True,
-                                input_field_placeholder='Выбери действие')
+                                input_field_placeholder='Выберите действие')
 
 task_from_category = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Простая', callback_data='easy')],
@@ -27,7 +27,7 @@ exit_game_after_hints_turn_zero = InlineKeyboardMarkup(inline_keyboard=[
 
 start_competition = ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text='Начать соревнование'), KeyboardButton(text='Выйти из соревнования')]],
                                         resize_keyboard=True,
-                                        input_field_placeholder='Выбери действие')
+                                        input_field_placeholder='Выберите действие')
 
 
 # admin keyboards
@@ -53,17 +53,14 @@ actions_with_room = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Создать свою комнату', callback_data='create_room')]
 ])
 
-# function which create keyboard for 2 actionts: join the room and create the room
-def get_room_type_keyboard(context: str = "") -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text='Открытая', 
-                callback_data=f'{context}_opened_room'
-            ),
-            InlineKeyboardButton(
-                text='Закрытая', 
-                callback_data=f'{context}_closed_room'
-            )
-        ]
-    ])
+# keyboard for create the room
+room_type = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Открытая', callback_data='create_opened_room'),
+     InlineKeyboardButton(text='Закрытая', callback_data='create_closed_room')]
+])
+
+# keyboard for create the room
+room_security = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text='Случайная комната', callback_data='join_opened_room'),
+     InlineKeyboardButton(text='По коду подключения', callback_data='join_closed_room')]
+])
