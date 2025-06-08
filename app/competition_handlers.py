@@ -20,6 +20,9 @@ class Create_Room(StatesGroup): # create room
 
 class Room_States(StatesGroup):
     in_room = State()
+    
+class CompetitionStates(StatesGroup):
+    waiting_for_answer = State()
 
 # ZAGLUSHKA for creating room in db
 async def create_room_in_db(user_id: int, count_task: int, is_room_closed: int) -> bool:
@@ -102,8 +105,8 @@ async def deleting_user_from_competition(user_id: int) -> int:
     return True
 
 # ZAGLUSHKA for saving random task in room
-async def save_task_in_room(room_id: int, task) -> bool:
-    # function in db for saing task in db
+async def save_task_in_room(room_id: int, task_id: int) -> bool:
+    #add_task_to_room(room_id, task_id)
     save = True
     return save
 
@@ -133,14 +136,14 @@ async def start_competition(message: Message, bot: Bot):
         await bot.send_message(chat_id=user_in_competition, text="Соревнование завершено!") """
     # await state.clear()
 
-async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users: list):
+async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users: list[int]):
     for curr_index in range(1, count_tasks + 1):
         task_number = f"📝 Задание номер {curr_index}"
         task = get_random_task()
         task_id, title, type_id, difficulty, description, question, correct_answer, solution = task[:8]
         
         # ZAGLUSHKA for saving random task in room
-        success_saving = await save_task_in_room(room_id, task)
+        success_saving = await save_task_in_room(room_id, task_id)
 
         task_text = (
             f"📌 *{title}*\n\n"
@@ -151,7 +154,8 @@ async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users:
         for user_id in users:
             await bot.send_message(user_id, task_number)
             await bot.send_message(user_id, task_text, parse_mode='Markdown')
-            
+            #state = Dispatcher.get_current().fsm.get_context(bot=bot, chat_id=user_id, user_id=user_id)
+            #await state.set_state(CompetitionStates.waiting_for_answer)
         # waiting for 7 minutes (420 seconds) or while all members answer
         await asyncio.sleep(5)
         
@@ -162,18 +166,36 @@ async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users:
     
 #async def check_answers(room_id: int, task_id: int) ->    
 
-# ZAGLUSHKA for checking user in competitions
-async def is_user_in_competition(user_id: int) -> bool:
-    # function from db for checking that user in room 
-    in_competition = True
-    return in_competition
+# ZAGLUSHKA for getting the last task in room
+async def get_last_task_in_room_from_db(room_id: int):
+    #task = get_last_task_in_room(room_id)
+    task = get_random_task() # !for example! 
+    return task
 
+# ZAGLUSHKA for increasing score for player
+async def increase_score(user_id: int, room_id: int):
+    # function for increase score
+    return True
+    
 """ @comp_router.message(lambda message: is_user_in_competition(message.from_user.id))
 async def handle_competition_answer(message: Message):
     user_id = message.from_user.id
-    room_id = await get_room_id_for_user(user_id) """
+    room_id = await get_room_id_for_user(user_id)
     
-
+    user_answer = ''
+    user_answer = message.text
+    
+    # ZAGLUSHKA for getting the last task in room
+    last_task = await get_last_task_in_room_from_db(room_id)
+    
+    last_task_id = last_task[0]
+    if check_answer(last_task_id, user_answer):
+        # ZAGLUSHKA for increasing score for player
+        success = await increase_score(user_id, room_id)
+        await message.answer("✅ Верно!")
+    else:
+        await message.answer("❌ Неверно") """
+        
 @comp_router.message(F.text == "Выйти из соревнования")
 async def exit_competition(message: Message):
     user_id = message.from_user.id
@@ -272,10 +294,11 @@ async def enter_password(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
     
 @comp_router.message(Join_Closed_Room.password)
-async def join_closed_room(message: Message, state: FSMContext):
+async def join_closed_room(message: Message, state: FSMContext, bot: Bot):
     await state.update_data(password=message.text) # save password in Join_Closed_Room field password
     room_data = await state.get_data() # Join_Closed_Room class info
     password = room_data.get("password")
+    user_id = message.from_user.id
     
     # ZAGLUSHKA for checking password for room
     is_correct_password = await check_password(password)
@@ -283,8 +306,10 @@ async def join_closed_room(message: Message, state: FSMContext):
     if is_correct_password:
         await message.answer('✅  Вы присоединились к комнате', reply_markup=ReplyKeyboardRemove())
         await message.answer(f'Вы можете в любой момент покинуть соревнование.', reply_markup=keyboards.exit_competition)
+        
         # ZAGLUSHKA add user in closed room
         # room_id = await add_user_in_closed_room(user_id)
+        
         await state.set_state(Room_States.in_room)
         await state.update_data(in_room=True) # now user is in room
         
@@ -302,6 +327,13 @@ async def join_closed_room(message: Message, state: FSMContext):
         if users_names:
             participants = "В комнате присутствуют:\n" + "\n".join(users_names)
             await message.answer(participants)
+            
+            users_in_competition = []
+            users_in_competition = await get_room_users_id(room_id)
+            name = await get_user_name_from_db(user_id)
+            for user_in_competition in users_in_competition:
+                if user_in_competition != user_id:
+                    await bot.send_message(chat_id=user_in_competition, text=f"Новый участник: {name}")
         else:
             await message.answer("В комнате пока никого нет.")
         await state.clear() 
@@ -312,11 +344,13 @@ async def join_closed_room(message: Message, state: FSMContext):
         await state.set_state(Join_Closed_Room.password)
     
 @comp_router.callback_query(F.data == 'join_opened_room')
-async def join_opened_room(callback: CallbackQuery, state: FSMContext):
+async def join_opened_room(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.message.answer('✅  Вы присоединились к комнате', reply_markup=ReplyKeyboardRemove())
     await callback.message.answer(f'Вы можете в любой момент покинуть соревнование.', reply_markup=keyboards.exit_competition)
+    user_id = callback.from_user.id
     # ZAGLUSHKA add user in random room
     # room_id = await add_user_in_random_room(user_id)
+    
     await state.set_state(Room_States.in_room)
     await state.update_data(in_room=True)
     
@@ -336,5 +370,12 @@ async def join_opened_room(callback: CallbackQuery, state: FSMContext):
     if users_names:
         participants = "В комнате присутствуют:\n" + "\n".join(users_names)
         await callback.message.answer(participants)
+        
+        users_in_competition = []
+        users_in_competition = await get_room_users_id(room_id)
+        name = await get_user_name_from_db(user_id)
+        for user_in_competition in users_in_competition:
+            if user_in_competition != user_id:
+                await bot.send_message(chat_id=user_in_competition, text=f"Новый участник: {name}")
     else:
         await callback.message.answer("В комнате пока никого нет.")
