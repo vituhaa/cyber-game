@@ -98,7 +98,10 @@ async def asking_for_count_tasks(user_id: int) -> int:
 async def get_room_id_for_user(id: int) -> int:
     # function for finding user in room
     room_id = 123
-    return room_id
+    if room_id:
+        return room_id
+    else:
+        return None
 
 # ZAGLUSHKA for deleting user from room for taping "Exit competition"
 async def deleting_user_from_competition(user_id: int) -> int:
@@ -123,7 +126,14 @@ async def start_competition(message: Message, bot: Bot):
     users_in_competition = await get_room_users_id(room_id)
 
     for user_in_competition in users_in_competition:
-        await bot.send_message(chat_id=user_in_competition, text="На решение каждой задачи у вас есть 7 минут. Время пошло!")
+        if user_in_competition == id:
+            await bot.send_message(chat_id=user_in_competition, text = "Соревнование началось!", 
+                                   reply_markup=ReplyKeyboardRemove())
+            await bot.send_message(chat_id=user_in_competition, text="На решение каждой задачи у вас есть 7 минут. Время пошло!",
+                                   reply_markup=keyboards.exit_competition)
+        else:
+            await bot.send_message(chat_id=user_in_competition, text = "Соревнование началось!")
+            await bot.send_message(chat_id=user_in_competition, text="На решение каждой задачи у вас есть 7 минут. Время пошло!")
 
     await run_competition_tasks(bot, room_id, count_tasks, users_in_competition) # print tasks
     """ for curr_index in range(1, count_tasks + 1):
@@ -158,13 +168,9 @@ async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users:
             #await state.set_state(CompetitionStates.waiting_for_answer)
         # waiting for 7 minutes (420 seconds) or while all members answer
         await asyncio.sleep(5)
-        
-        # ZAGLUSHKA for checking answers
-        # await check_answers(room_id, task_id)
     
-    # await show_final_results(bot, room_id, users)
-    
-#async def check_answers(room_id: int, task_id: int) ->    
+    await show_final_results(bot, room_id, users)
+      
 
 # ZAGLUSHKA for getting the last task in room
 async def get_last_task_in_room_from_db(room_id: int):
@@ -177,25 +183,90 @@ async def increase_score(user_id: int, room_id: int):
     # function for increase score
     return True
     
-""" @comp_router.message(lambda message: is_user_in_competition(message.from_user.id))
+""" @comp_router.message()
 async def handle_competition_answer(message: Message):
     user_id = message.from_user.id
     room_id = await get_room_id_for_user(user_id)
+    if room_id is not None:
+        user_answer = message.text
     
-    user_answer = ''
-    user_answer = message.text
-    
-    # ZAGLUSHKA for getting the last task in room
-    last_task = await get_last_task_in_room_from_db(room_id)
-    
-    last_task_id = last_task[0]
-    if check_answer(last_task_id, user_answer):
-        # ZAGLUSHKA for increasing score for player
-        success = await increase_score(user_id, room_id)
-        await message.answer("✅ Верно!")
-    else:
-        await message.answer("❌ Неверно") """
+        # ZAGLUSHKA for getting the last task in room
+        last_task = await get_last_task_in_room_from_db(room_id)
         
+        if last_task is None:
+            await message.answer("⛔️  Вы не можете отправить ответ на задачу!")
+            return
+
+        last_task_id = last_task[0]
+        if check_answer(last_task_id, user_answer):
+            # ZAGLUSHKA for increasing score for player
+            success = await increase_score(user_id, room_id)
+            await message.answer("✅  Верно!")
+        else:
+            await message.answer("❌  Неверно")
+    else:
+        return """
+
+# ZAGLUSHKA for formation of the rating table
+async def get_names_rating(room_id: int, users: list[int]) -> dict[int: list[str]]:
+    # function from db, which return score by user id
+    # EXAMPLE for output format and processing:
+    # users = [5757254840, 612504339]
+    score_table = {}
+    score_table_ids = {}
+    for user in users:
+        # function from db, which return score by user_id
+        user_score = random.randint(4, 5) # !for example!
+        user_name = await get_user_name_from_db(user)
+        if user_score not in score_table:
+            score_table[user_score] = []
+            score_table_ids[user_score] = []
+            score_table[user_score].append(user_name)
+            score_table_ids[user_score].append(user)
+        else:
+            score_table[user_score].append(user_name)
+            score_table_ids[user_score].append(user)
+    
+    sorted_score_table = dict(sorted(score_table.items(), reverse=True))
+    sorted_score_table_ids = dict(sorted(score_table_ids.items(), reverse=True))
+    return sorted_score_table, sorted_score_table_ids
+
+async def show_final_results(bot: Bot, room_id: int, users: list[int]):
+    # ZAGLUSHKA for formation of the rating table
+    users_rating = {} # dict score_1: [name_1, name_2, ...], score_2: [name_3], score_3: [name_4], ...
+    users_rating, rating_ids = await get_names_rating(room_id, users)
+    
+    text_results = ''
+    place = 1
+    emoji = ''
+
+    points = 500
+    first_plase_score = 0
+    for score in users_rating:
+        if place == 1:
+            emoji = '🥇'
+            # ZAGLUSHKA for add +point to winners
+            # for example for only 1st place
+            for id in rating_ids[score]:
+                update_user_score(user_tg_id=id, score_delta=points, increment_solved=False)
+            first_place_score = score
+        elif place == 2:
+            emoji = '🥈'
+        elif place == 3:
+            emoji = '🥉'
+        else:
+            emoji = '🔹️'
+        place_users = ", ".join(users_rating[score])
+        place_info = f'{emoji}  {place} место: {place_users}\n\n'
+        text_results += place_info
+        place += 1
+    
+    for user_id in users:
+        await bot.send_message(user_id, "Игра окончена!\nРезультаты соревнования:")
+        await bot.send_message(user_id, text_results)
+        if user_id in rating_ids[first_place_score]:
+            await bot.send_message(user_id, f"Поздравляем! Вы зарабатываете {points} баллов!")
+            
 @comp_router.message(F.text == "Выйти из соревнования")
 async def exit_competition(message: Message):
     user_id = message.from_user.id
