@@ -4,6 +4,8 @@ from aiogram.filters import CommandStart, Command
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from app.handlers import *
+import asyncio
+from aiogram import Bot
 
 import app.keyboards as keyboards
 
@@ -46,11 +48,14 @@ async def check_password(password: str) -> bool:
 # ZAGLUSHKA for having people's names who are in room
 async def get_room_users(room_id: int) -> list[str]:
     # function for finding people who are in room right now
-    id_s = [5757254840, 612504339, 786083570, 783367128, 1159819601, 1362082185] # Вика, Соня, Илья
+    id_s = [5757254840, 612504339] # Вика, Соня, Илья
     names = []
     for i in range (len(id_s)):
         names.append(await get_user_name_from_db(id_s[i]))
     return names
+
+async def get_room_users_id(room_id: int) -> list[str]:
+    return [5757254840, 612504339]
 
 # ZAGLUSHKA add user in random room
 async def add_user_in_random_room(user_id: int) -> int:
@@ -60,9 +65,38 @@ async def add_user_in_random_room(user_id: int) -> int:
     print(f'DEBUG: {random_room}')
     return random_room
 
+# ZAGLUSHKA for asking count_tasks
+async def asking_for_count_tasks(user_id: int) -> int:
+    # function for asking count_tasks
+    count = 5
+    return count
+
+# ZAGLUSHKA for deleting user from room for taping "Exit competition"
+async def deleteng_user_from_competition(user_id: int) -> int:
+    return True
+
 @comp_router.message(F.text == 'Начать соревнование')
-async def start_competition(message: Message):
-    await message.answer('У вас есть пять минут на решение задач. Время пошло!')
+async def start_competition(message: Message, bot: Bot):
+    id = message.from_user.id
+    count_tasks = await asking_for_count_tasks(id)
+    
+    room_id = 123
+    users_in_competition = []
+    users_in_competition = await get_room_users_id(room_id)
+
+    for user_in_competition in users_in_competition:
+        await bot.send_message(chat_id=user_in_competition, text="На решение каждой задачи у вас есть 7 минут. Время пошло!")
+
+    for curr_index in range(1, count_tasks + 1):
+        task_number = f"Задание номер {curr_index}"
+        for user_in_competition in users_in_competition:
+            await bot.send_message(chat_id=user_in_competition, text=task_number)
+        await asyncio.sleep(5)
+            
+    for user_in_competition in users_in_competition:
+        await bot.send_message(chat_id=user_in_competition, text="Соревнование завершено!")
+    # await state.clear()
+        
 
 @comp_router.message(F.text == "Выйти из соревнования")
 async def exit_competition(message: Message):
