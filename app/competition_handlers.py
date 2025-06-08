@@ -59,49 +59,129 @@ async def get_room_users_id(room_id: int) -> list[str]:
 
 # ZAGLUSHKA add user in random room
 async def add_user_in_random_room(user_id: int) -> int:
-    # function for finding random room 
+    # function for finding random opened room in db:
     all_rooms = [123, 124, 125]
     random_room = random.choice(all_rooms)
     print(f'DEBUG: {random_room}')
     return random_room
 
-# ZAGLUSHKA for asking count_tasks
+# ZAGLUSHKA add user in closed room
+async def add_user_in_closed_room(user_id: int) -> int:
+    # function for finding random closed room in db:
+    all_closed_rooms = [123, 124, 125]
+    random_room = random.choice(all_closed_rooms)
+    print(f'DEBUG: {random_room}')
+    return random_room
+
+# ZAGLUSHKA for sending list of all closed rooms ids
+async def get_all_closed_rooms_ids() -> list[int]:
+    # function for sending all closed rooms ids in db
+    closed_rooms_ids = []
+    return closed_rooms_ids
+
+# ZAGLUSHKA for sending list of all opened rooms ids
+async def get_all_opened_rooms_ids() -> list[int]:
+    # function for sending all opened rooms ids in db
+    opened_rooms_ids = []
+    return opened_rooms_ids
+
+# ZAGLUSHKA for asking count_tasks from db
 async def asking_for_count_tasks(user_id: int) -> int:
     # function for asking count_tasks
     count = 5
     return count
 
+# ZAGLUSHKA for getting room id from db for user in room
+async def get_room_id_for_user(id: int) -> int:
+    # function for finding user in room
+    room_id = 123
+    return room_id
+
 # ZAGLUSHKA for deleting user from room for taping "Exit competition"
-async def deleteng_user_from_competition(user_id: int) -> int:
+async def deleting_user_from_competition(user_id: int) -> int:
     return True
+
+# ZAGLUSHKA for saving random task in room
+async def save_task_in_room(room_id: int, task) -> bool:
+    # function in db for saing task in db
+    save = True
+    return save
 
 @comp_router.message(F.text == 'Начать соревнование')
 async def start_competition(message: Message, bot: Bot):
     id = message.from_user.id
+    # ZAGLUSHKA for asking count_tasks from db
     count_tasks = await asking_for_count_tasks(id)
     
-    room_id = 123
+    # ZAGLUSHKA for getting room id from db for user in room
+    room_id = await get_room_id_for_user(id)
+    #room_id = 123 # !for example!
     users_in_competition = []
     users_in_competition = await get_room_users_id(room_id)
 
     for user_in_competition in users_in_competition:
         await bot.send_message(chat_id=user_in_competition, text="На решение каждой задачи у вас есть 7 минут. Время пошло!")
 
-    for curr_index in range(1, count_tasks + 1):
+    await run_competition_tasks(bot, room_id, count_tasks, users_in_competition) # print tasks
+    """ for curr_index in range(1, count_tasks + 1):
         task_number = f"Задание номер {curr_index}"
         for user_in_competition in users_in_competition:
             await bot.send_message(chat_id=user_in_competition, text=task_number)
         await asyncio.sleep(5)
             
     for user_in_competition in users_in_competition:
-        await bot.send_message(chat_id=user_in_competition, text="Соревнование завершено!")
+        await bot.send_message(chat_id=user_in_competition, text="Соревнование завершено!") """
     # await state.clear()
+
+async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users: list):
+    for curr_index in range(1, count_tasks + 1):
+        task_number = f"📝 Задание номер {curr_index}"
+        task = get_random_task()
+        task_id, title, type_id, difficulty, description, question, correct_answer, solution = task[:8]
         
+        # ZAGLUSHKA for saving random task in room
+        success_saving = await save_task_in_room(room_id, task)
+
+        task_text = (
+            f"📌 *{title}*\n\n"
+            f"📝 *Описание:* {description}\n\n"
+            f"❓ *Вопрос:* {question}\n\n"
+            f"(Введите ваш ответ сообщением)"
+        )
+        for user_id in users:
+            await bot.send_message(user_id, task_number)
+            await bot.send_message(user_id, task_text, parse_mode='Markdown')
+            
+        # waiting for 7 minutes (420 seconds) or while all members answer
+        await asyncio.sleep(5)
+        
+        # ZAGLUSHKA for checking answers
+        # await check_answers(room_id, task_id)
+    
+    # await show_final_results(bot, room_id, users)
+    
+#async def check_answers(room_id: int, task_id: int) ->    
+
+# ZAGLUSHKA for checking user in competitions
+async def is_user_in_competition(user_id: int) -> bool:
+    # function from db for checking that user in room 
+    in_competition = True
+    return in_competition
+
+""" @comp_router.message(lambda message: is_user_in_competition(message.from_user.id))
+async def handle_competition_answer(message: Message):
+    user_id = message.from_user.id
+    room_id = await get_room_id_for_user(user_id) """
+    
 
 @comp_router.message(F.text == "Выйти из соревнования")
 async def exit_competition(message: Message):
-    await message.answer('Вы вышли из режима соревнования!', reply_markup=ReplyKeyboardRemove())
-    await message.answer('Вы вернулись в главное меню', reply_markup=keyboards.main_menu)
+    user_id = message.from_user.id
+    # ZAGLUSHKA for deleting user from room for taping "Exit competition"
+    success_exit = await deleting_user_from_competition(user_id)
+    if success_exit:
+        await message.answer('Вы вышли из режима соревнования!', reply_markup=ReplyKeyboardRemove())
+        await message.answer('Вы вернулись в главное меню', reply_markup=keyboards.main_menu)
 
 @comp_router.message(F.text == 'Соревнование')
 async def choose_comp_format(message: Message):
@@ -111,15 +191,12 @@ async def choose_comp_format(message: Message):
     
 @comp_router.callback_query(F.data == 'join_room')
 async def choose_join_room_type(callback: CallbackQuery, state: FSMContext):
-    context = 'join' # context for creating keyboard
-    # await state.set_state(Room_States.in_room)
     await callback.message.answer('🔓  Если Вы выбираете случайную комнату, бот подключит Вас к игре с любыми участниками.\n'
                                   '🔐  При выборе входа по коду подключения, Вы присоединитесь к конкретной комнате, в которую Вас пригласили.\n'
                                   , reply_markup=keyboards.room_security)
     
 @comp_router.callback_query(F.data == 'create_room')
 async def choose_create_room_type(callback: CallbackQuery):
-    context = 'create' # context for creating keyboard
     await callback.message.answer('🔓  Если Вы создаёте открытую комнату, к ней смогут подключиться любые участники, а также те, кому Вы дадите код подключения.\n'
                                   '🔐  При выборе закрытой, участники смогут получить доступ к комнате только по коду.\n'
                                   , reply_markup=keyboards.room_type)
@@ -166,32 +243,27 @@ async def create_room(message: Message, state: FSMContext): # common function fo
         password = await get_room_password()
     
     if success_creation and access_type == 0:
-        await state.update_data(in_room=True)
+        await state.update_data(in_room=True) # now user is in room
         # ZAGLUSHKA add user in random room
+        # room_id = await add_user_in_random_room(user_id)
         await state.set_state(Room_States.in_room)
         await message.answer(f'✅  Вы создали открытую комнату на {count_tasks} задач и пока являетесь единственным игроком.\n'
                              'К вам смогут присоединиться любые участники, а также те, кому вы сообщите следующий код подключения:', reply_markup=ReplyKeyboardRemove())
         await message.answer(f'*{password}*', parse_mode='Markdown',  reply_markup=keyboards.start_competition)
-        # await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
-        await state.update_data(in_room=True)
-        # room_id = 123
-        # users_names = await get_room_users(room_id)
-        # if users_names:
-        #     participants = "В комнату добавились:\n" + "\n".join(users_names)
-        #     await message.answer(participants)
-        # else:
-        #     await message.answer("В комнате пока никого нет.")
+        await state.update_data(in_room=True) # now user is in room
     elif success_creation and access_type == 1:
+        await state.update_data(in_room=True) # now user is in room
+        # ZAGLUSHKA add user in closed room
+        # room_id = await add_user_in_closed_room(user_id)
+        await state.set_state(Room_States.in_room)
         await message.answer(f'✅  Вы создали закрытую комнату на {count_tasks} задач и пока являетесь единственным игроком.\n'
                              'Отправьте данный код подключения другим участникам, чтобы они смогли присоединиться:', reply_markup=ReplyKeyboardRemove())
         await message.answer(f'*{password}*', parse_mode='Markdown', reply_markup=keyboards.start_competition)
-        # await message.answer(f'Выберите действие:', reply_markup=keyboards.start_competition)
+        await state.update_data(in_room=True) # now user is in room
     else:
         await message.answer('❌  Не удалось создать комнату.\n'
                              'Возможно Вы указали некорректное число задач')
     await state.clear()
-    # VIKA, I DON'T KNOW WHERE TO INSERT "START THE GAME" AND "EXIT THE GAME" BUTTONS AND
-    # WHEN HIDE THE MAIN MENU KEYBOARD
     
 @comp_router.callback_query(F.data == 'join_closed_room')
 async def enter_password(callback: CallbackQuery, state: FSMContext):
@@ -211,9 +283,21 @@ async def join_closed_room(message: Message, state: FSMContext):
     if is_correct_password:
         await message.answer('✅  Вы присоединились к комнате', reply_markup=ReplyKeyboardRemove())
         await message.answer(f'Вы можете в любой момент покинуть соревнование.', reply_markup=keyboards.exit_competition)
+        # ZAGLUSHKA add user in closed room
+        # room_id = await add_user_in_closed_room(user_id)
         await state.set_state(Room_States.in_room)
-        await state.update_data(in_room=True)
-        room_id = 123
+        await state.update_data(in_room=True) # now user is in room
+        
+        # ZAGLUSHKA for sending list of all closed rooms ids
+        # closed_rooms_ids = await get_all_closed_rooms_ids()
+        # for room_id in closed_rooms_ids:
+        #     users_names = await get_room_users(room_id)
+        #     if users_names:
+        #         participants = "В комнате присутствуют:\n" + "\n".join(users_names)
+        #         await message.answer(participants)
+        #     else:
+        #         await message.answer("В комнате пока никого нет.")
+        room_id = 123 # !for example!
         users_names = await get_room_users(room_id)
         if users_names:
             participants = "В комнате присутствуют:\n" + "\n".join(users_names)
@@ -221,32 +305,36 @@ async def join_closed_room(message: Message, state: FSMContext):
         else:
             await message.answer("В комнате пока никого нет.")
         await state.clear() 
-        # VIKA, your logic (count players, count_tasks, ...)
     
     else:
         await message.answer('❌  Неверный пароль!\nПопробуйте ещё раз')
         await state.clear()
         await state.set_state(Join_Closed_Room.password)
-       
-    # VIKA, I DON'T KNOW WHERE TO INSERT "START THE GAME" AND "EXIT THE GAME" BUTTONS AND
-    # WHEN HIDE THE MAIN MENU KEYBOARD
     
 @comp_router.callback_query(F.data == 'join_opened_room')
 async def join_opened_room(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer('✅  Вы присоединились к комнате', reply_markup=ReplyKeyboardRemove())
     await callback.message.answer(f'Вы можете в любой момент покинуть соревнование.', reply_markup=keyboards.exit_competition)
     # ZAGLUSHKA add user in random room
+    # room_id = await add_user_in_random_room(user_id)
     await state.set_state(Room_States.in_room)
     await state.update_data(in_room=True)
-    room_id = 123
-    # id_s = [5757254840, 612504339, 786083570, 783367128, 1159819601, 1362082185]
-    # for i in range (len(id_s)):
-    #     user_id = id_s[i]
-    #     room_id = add_user_in_random_room(user_id)
+    
+    # ZAGLUSHKA for sending list of all opened rooms ids
+    # opened_rooms_ids = await get_all_opened_rooms_ids()
+    # for room_id in opened_rooms_ids:
+    #     users_names = await get_room_users(room_id)
+    #     if users_names:
+    #         participants = "В комнате присутствуют:\n" + "\n".join(users_names)
+    #         await message.answer(participants)
+    #     else:
+    #         await message.answer("В комнате пока никого нет.")
+    
+    room_id = 123 # !for example!
+    # id_s = [5757254840, 612504339, 786083570, 783367128, 1159819601, 1362082185] # !for example!
     users_names = await get_room_users(room_id)
     if users_names:
         participants = "В комнате присутствуют:\n" + "\n".join(users_names)
         await callback.message.answer(participants)
     else:
         await callback.message.answer("В комнате пока никого нет.")
-    # VIKA, your logic (count players, count_tasks, ...)
