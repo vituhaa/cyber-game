@@ -371,7 +371,7 @@ async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users:
                 except Exception as e:
                     print(f"[ERROR] Ошибка отправки пользователю {user_id}: {e}")
 
-            await asyncio.sleep(15)  # Таймер на решение
+            await asyncio.sleep(5)  # Таймер на решение
 
         except sqlite3.IntegrityError as e:
             print(f"[ERROR] Ошибка БД при добавлении задачи: {e}")
@@ -420,31 +420,6 @@ def get_room_creator(room_id: int) -> Optional[int]:
         cur.execute("SELECT creator_id FROM Room WHERE id = ?", (room_id,))
         result = cur.fetchone()
         return result[0] if result else None
-
-
-async def add_creator_in_room(room_id: int) -> bool:
-    """
-    Добавляет создателя комнаты как участника
-
-    Args:
-        room_id: ID комнаты
-
-    Returns:
-        bool: True если добавление прошло успешно
-    """
-    try:
-        # Получаем создателя комнаты
-        creator_id = get_room_creator(room_id)
-        if not creator_id:
-            return False
-
-        # Добавляем создателя в комнату
-        join_room(creator_id, room_id)
-        return True
-
-    except Exception as e:
-        print(f"Error adding creator to room: {e}")
-        return False
 
 
 def calculate_score(difficulty: int) -> int:
@@ -801,7 +776,6 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
                 f'Код подключения: *{password}*\n\n'
                 f'Отправьте этот код участникам для присоединения'
             )
-            await add_user_in_closed_room(user_id, password)
         else:
             message_text = (
                 f'✅ Вы создали открытую комнату на {count_tasks} задач.\n'
@@ -813,10 +787,6 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
             parse_mode='Markdown' if is_closed else None,
             reply_markup=keyboards.start_competition
         )
-
-        add = await add_creator_in_room(room_id)
-        if add:
-            await message.answer('✅ Вы присоединились к комнате!', reply_markup=keyboards.start_competition)
 
         await state.update_data(room_id=room_id, in_room=True)
         await state.set_state(Room_States.in_room)
