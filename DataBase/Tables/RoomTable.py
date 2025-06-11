@@ -3,6 +3,8 @@ from pathlib import Path
 from datetime import datetime
 import random
 import string
+import sqlite3
+from typing import Optional
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
@@ -51,15 +53,33 @@ def get_room_id_by_key(key):
         cur.execute("SELECT id FROM Room WHERE key = ?", (key,))
         return cur.fetchone()[0]
 
-def create_room(creator_id, key, is_closed):
+
+def create_room(creator_id: int, is_closed: bool, key: str = None) -> Optional[int]:
+    """
+    Создает комнату в базе данных
+
+    Args:
+        creator_id: ID создателя
+        is_closed: Флаг закрытой комнаты
+        key: Код подключения (только для закрытых комнат, может быть None)
+
+    Returns:
+        ID созданной комнаты
+    """
     with connect() as conn:
         cur = conn.cursor()
+
+        room_key = key if is_closed else ''
+
         cur.execute("""
             INSERT INTO Room (creator_id, key, status, created_at, is_closed)
-            VALUES (?, ?, 'waiting', ?, ?)""",
-            (creator_id, key, datetime.utcnow(),is_closed))
-    room_id = get_room_id_by_key(key)
-    join_room(creator_id,room_id)
+            VALUES (?, ?, 'waiting', datetime('now'), ?)
+        """, (creator_id, room_key, is_closed))
+
+        room_id = cur.lastrowid
+        conn.commit()
+
+    return room_id
     
 
 def find_open_room():
