@@ -32,11 +32,21 @@ def get_room_participant_count(room_id):
 def join_room(user_id, room_id):
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT room_id FROM Room_Participants WHERE user_id = ?",(user_id,))
-        row = cur.fetchone()
-        if not row:
-            cur.execute("INSERT INTO Room_Participants (user_id, room_id, score) VALUES (?, ?, 0)",
-                        (user_id, room_id))
+        # Проверяем статус комнаты
+        cur.execute("SELECT status FROM Room WHERE id = ?", (room_id,))
+        room_status = cur.fetchone()
+
+        if not room_status or room_status[0] != 'waiting':
+            return False  # Комната не в состоянии 'waiting'
+
+        # Проверяем, не находится ли пользователь уже в комнате
+        cur.execute("SELECT 1 FROM Room_Participants WHERE user_id = ? AND room_id = ?", (user_id, room_id))
+        if cur.fetchone():
+            return False  # Пользователь уже в комнате
+
+        cur.execute("INSERT INTO Room_Participants (user_id, room_id, score) VALUES (?, ?, 0)", (user_id, room_id))
+        conn.commit()
+        return True
         
 def update_player_score(user_id, room_id, score):
     with connect() as conn:

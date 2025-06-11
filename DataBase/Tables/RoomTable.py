@@ -54,38 +54,33 @@ def get_room_id_by_key(key):
         return cur.fetchone()[0]
 
 
-def create_room(creator_id: int, is_closed: bool, key: str = None) -> Optional[int]:
+def create_room(creator_id: int, is_closed: bool) -> Optional[int]:
     """
-    Создает комнату в базе данных
-
-    Args:
-        creator_id: ID создателя
-        is_closed: Флаг закрытой комнаты
-        key: Код подключения (только для закрытых комнат, может быть None)
-
-    Returns:
-        ID созданной комнаты
+    Создает комнату ВСЕГДА с ключом, даже если она открытая
+    Возвращает ID комнаты или None при ошибке
     """
     with connect() as conn:
         cur = conn.cursor()
-
-        room_key = key if is_closed else ''
+        key = generate_random_key()  # Генерируем ключ ВСЕГДА
 
         cur.execute("""
             INSERT INTO Room (creator_id, key, status, created_at, is_closed)
             VALUES (?, ?, 'waiting', datetime('now'), ?)
-        """, (creator_id, room_key, is_closed))
+        """, (creator_id, key, is_closed))
 
         room_id = cur.lastrowid
         conn.commit()
+        return room_id
 
-    return room_id
-    
 
 def find_open_room():
     with connect() as conn:
         cur = conn.cursor()
-        cur.execute("SELECT id FROM Room WHERE status = 'waiting' AND is_closed = 0 LIMIT 1")
+        cur.execute("""
+            SELECT id FROM Room 
+            WHERE status = 'waiting' AND is_closed = 0
+            LIMIT 1
+        """)
         row = cur.fetchone()
         return row[0] if row else None
 

@@ -68,3 +68,7 @@ room_security = InlineKeyboardMarkup(inline_keyboard=[
     [InlineKeyboardButton(text='Случайная комната', callback_data='join_opened_room'),
      InlineKeyboardButton(text='По коду подключения', callback_data='join_closed_room')]
 ])
+
+cancel_action = InlineKeyboardMarkup(inline_keyboard=[
+    [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_join")]
+])

@@ -34,12 +34,6 @@ async def create_room_in_db(user_id: int, is_closed: bool, task_count: int = Non
     print(f"\n[DEBUG] Начало создания комнаты. Параметры: user_id={user_id}, is_closed={is_closed}, task_count={task_count}")
 
     try:
-        # 1. Генерация ключа ТОЛЬКО для закрытых комнат
-        key = generate_random_key() if is_closed else None
-        if is_closed:
-            print(f"[DEBUG] Сгенерирован ключ комнаты: {key}")
-        else:
-            print("[DEBUG] Создается открытая комната (без ключа)")
 
         # 2. Проверка существования пользователя
         with connect() as conn:
@@ -51,7 +45,7 @@ async def create_room_in_db(user_id: int, is_closed: bool, task_count: int = Non
 
         # 3. Создание комнаты
         print("[DEBUG] Вызов db_create_room...")
-        room_id = db_create_room(creator_id=user_id, is_closed=is_closed, key=key)
+        room_id = db_create_room(creator_id=user_id, is_closed=is_closed)
         print(f"[DEBUG] Результат db_create_room: {room_id}")
 
         if not room_id:
@@ -194,24 +188,6 @@ async def get_all_opened_rooms_ids() -> list[int]:
         """)
         return [row[0] for row in cur.fetchall()]
 
-async def asking_for_count_tasks(user_id: int) -> int:
-    """Возвращает рекомендуемое количество задач на основе статистики пользователя"""
-    with connect() as conn:
-        cur = conn.cursor()
-        # Получаем количество решенных пользователем задач
-        cur.execute("""
-            SELECT solved_count FROM User 
-            WHERE user_tg_id = ?
-        """, (user_id,))
-        result = cur.fetchone()
-        if result:
-            solved_count = result[0]
-            # Рекомендуем больше задач опытным пользователям
-            if solved_count > 50:
-                return 7
-            elif solved_count > 20:
-                return 5
-        return 3  # Значение по умолчанию
 
 async def get_room_id_for_user(user_id: int) -> int:
     """Возвращает ID комнаты, в которой находится пользователь"""
@@ -259,139 +235,64 @@ async def save_task_in_room(room_id: int, task_id: int) -> bool:
 
 @comp_router.message(F.text == 'Начать соревнование')
 async def start_competition(message: Message, state: FSMContext, bot: Bot):
-    """Обработчик начала соревнования в комнате"""
+    """Обработчик начала соревнования в комнате."""
     try:
         user_id = message.from_user.id
-        print(f"\n[DEBUG] Начало соревнования для пользователя {user_id}")
-
-        # 1. Получаем данные из состояния
         data = await state.get_data()
         room_id = data.get('room_id')
-        count_tasks = data.get('count_tasks', 3)  # Значение по умолчанию
+        count_tasks = data.get('count_tasks', 3)  # Берём из состояния
 
-        # 2. Проверка существования комнаты
         if not room_id:
-            print("[ERROR] room_id не найден в состоянии")
             await message.answer("❌ Сначала создайте или войдите в комнату")
             return
 
-        # 3. Получаем список участников
-        try:
-            participants = await get_room_users_id(room_id)
-            if not participants:
-                await message.answer("⚠️ В комнате нет участников")
-                return
-
-            print(f"[DEBUG] Участники комнаты {room_id}: {participants}")
-        except Exception as e:
-            print(f"[ERROR] Ошибка получения участников: {e}")
-            await message.answer("❌ Ошибка получения списка участников")
+        participants = await get_room_users_id(room_id)
+        if not participants:
+            await message.answer("⚠️ В комнате нет участников")
             return
 
-        # 4. Проверка количества задач
-        if not isinstance(count_tasks, int) or count_tasks <= 0:
-            count_tasks = 3  # Значение по умолчанию
-            print("[WARNING] Некорректное количество задач, установлено значение по умолчанию")
-
-        # 5. Уведомление участников
-        try:
-            for user_id in participants:
-                await bot.send_message(
-                    user_id,
-                    "🏁 Соревнование начинается!\n"
-                    f"Количество задач: {count_tasks}\n"
-                    "На решение каждой задачи - 5 минут",
-                    reply_markup=keyboards.exit_competition
-                )
-        except Exception as e:
-            print(f"[ERROR] Ошибка уведомления участников: {e}")
-
-        # 6. Запуск задач
-        try:
-            await run_competition_tasks(bot, room_id, count_tasks, participants)
-        except Exception as e:
-            print(f"[CRITICAL] Ошибка в run_competition_tasks: {e}")
-            await message.answer("❌ Критическая ошибка при запуске задач")
-            import traceback
-            traceback.print_exc()
-
-        # 7. Обновление состояния комнаты
-        try:
-            with connect() as conn:
-                cur = conn.cursor()
-                cur.execute(
-                    "UPDATE Room SET status = 'finished' WHERE id = ?",
-                    (room_id,)
-                )
-                conn.commit()
-        except Exception as e:
-            print(f"[ERROR] Ошибка обновления статуса комнаты: {e}")
-
-    except Exception as e:
-        print(f"[UNHANDLED ERROR] Необработанное исключение: {e}")
-        await message.answer("⚠️ Произошла непредвиденная ошибка")
-    finally:
-        await state.set_state(None)
-
-
-async def run_competition_tasks(bot: Bot, room_id: int, count_tasks: int, users: list[int]):
-    if not room_id:
-        print("[ERROR] Передан пустой room_id!")
-        return
-
-    print(f"[DEBUG] Начало соревнования в комнате {room_id}")
-
-    for curr_index in range(1, count_tasks + 1):
-        task = get_random_task()
-        if not task:
-            await bot.send_message(users[0], "❌ Не удалось получить задачу")
-            continue
-
-        task_id, title, *_ = task  # Распаковка задачи
-
-        # Явная проверка перед сохранением
-        if not isinstance(room_id, int) or room_id <= 0:
-            print(f"[ERROR] Некорректный room_id: {room_id}")
-            continue
-
-        try:
-            # Добавляем задачу в комнату
-            add_task_to_room(room_id, task_id)
-            print(f"[DEBUG] Задача {task_id} добавлена в комнату {room_id}")
-
-            # Отправка задачи участникам
-            task_text = f"📌 *{title}*\n\n(Введите ответ сообщением)"
-            for user_id in users:
-                try:
-                    await bot.send_message(
-                        user_id,
-                        f"📝 Задание {curr_index}/{count_tasks}\n{task_text}",
-                        parse_mode='Markdown'
-                    )
-                except Exception as e:
-                    print(f"[ERROR] Ошибка отправки пользователю {user_id}: {e}")
-
-            await asyncio.sleep(15)  # Таймер на решение
-
-        except sqlite3.IntegrityError as e:
-            print(f"[ERROR] Ошибка БД при добавлении задачи: {e}")
+        # Уведомляем участников
+        for user_id in participants:
             await bot.send_message(
-                users[0],
-                "⚠️ Техническая ошибка при загрузке задачи"
+                user_id,
+                f"🏁 Соревнование начинается!\nКоличество задач: {count_tasks}",
+                reply_markup=keyboards.exit_competition
             )
 
-    await show_final_results(bot, room_id, users)
-      
+        # Передаём state в run_competition_tasks
+        await run_competition_tasks(bot, room_id, participants, state)
 
-'''async def get_last_task_in_room_from_db(room_id: int):
-    """Возвращает последнюю добавленную задачу в комнате"""
-    task_id = get_last_task_in_room(room_id)
-    if task_id:
-        with connect() as conn:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM Task WHERE id = ?", (task_id,))
-            return cur.fetchone()
-    return None'''
+    except Exception as e:
+        print(f"Ошибка при запуске соревнования: {e}")
+        await message.answer("❌ Произошла ошибка")
+
+
+async def run_competition_tasks(bot: Bot, room_id: int, users: list[int], state: FSMContext):
+    """Запускает задачи в комнате на основе указанного количества."""
+    data = await state.get_data()
+    count_tasks = data.get("count_tasks", 3)  # По умолчанию 3, если не указано
+
+    for curr_index in range(1, count_tasks + 1):  # Используем count_tasks
+        task = get_random_task()
+        if not task:
+            await bot.send_message(users[0], "❌ Не удалось получить задачу.")
+            continue
+
+        task_id, title, *_ = task
+        add_task_to_room(room_id, task_id)
+
+        task_text = f"📝 Задание {curr_index}/{count_tasks}\n📌 *{title}*\n(Введите ответ сообщением)"
+
+        for user_id in users:
+            try:
+                await bot.send_message(user_id, task_text, parse_mode='Markdown')
+            except Exception as e:
+                print(f"Ошибка отправки пользователю {user_id}: {e}")
+
+        await asyncio.sleep(15)  # Таймер на решение задачи
+
+    await show_final_results(bot, room_id, users)
+
 
 async def increase_score(user_id: int, room_id: int, score_delta: int = 100):
     """Увеличивает счет игрока в комнате"""
@@ -535,167 +436,70 @@ async def handle_competition_answer(message: Message, state: FSMContext):
         await message.answer("⚠ Произошла ошибка при проверке ответа")
 
 
-def calculate_places(scores: tuple[dict[int, list[str]], dict[int, list[int]]]) -> list[
-    tuple[int, int, list[str], list[int]]]:
-    """
-    Добавляет места к рейтингу
-
-    Args:
-        scores: Кортеж из (словарь_рейтинга, словарь_id)
-
-    Returns:
-        Список кортежей: (место, баллы, [имена], [ID])
-    """
-    score_dict, id_dict = scores
-    return [
-        (place, score, names, id_dict[score])
-        for place, (score, names) in enumerate(
-            sorted(score_dict.items(), key=lambda x: x[0], reverse=True),
-            start=1
-        )
-    ]
-
-async def format_rating_table(room_id: int) -> str:
-    """
-    Форматирует рейтинг в красивый текст
-    """
-    users = await get_room_users_id(room_id)
-    scores, score_ids = await get_names_rating(room_id, users)
-
-    if not scores:
-        return "Рейтинг пока недоступен"
-
-    table = ["🏆 Текущий рейтинг:"]
-    for place, (score, names, _) in enumerate(calculate_places((scores, score_ids)), start=1):
-        medal = {1: '🥇', 2: '🥈', 3: '🥉'}.get(place, '🔹')
-        table.append(f"{medal} {place}. {', '.join(names)} - {score} баллов")
-
-    return '\n'.join(table)
-
-async def get_names_rating(room_id: int, users: list[int]) -> tuple[dict[int, list[str]], dict[int, list[int]]]:
-    """
-    Формирует рейтинговую таблицу участников комнаты
-
-    Args:
-        room_id: ID комнаты
-        users: Список ID участников
-
-    Returns:
-        Кортеж из двух словарей:
-        1. {баллы: [имена]}
-        2. {баллы: [ID пользователей]}
-        Оба словаря отсортированы по убыванию баллов
-    """
-    score_table = {}
-    score_table_ids = {}
-
-    with connect() as conn:
-        cur = conn.cursor()
-
-        # Получаем текущие баллы всех участников
-        cur.execute("""
-            SELECT user_id, score 
-            FROM Room_Participants 
-            WHERE room_id = ? AND user_id IN ({})
-            ORDER BY score DESC
-        """.format(','.join('?' for _ in users)), [room_id] + users)
-
-        results = cur.fetchall()
-
-        if not results:
-            return {}, {}
-
-        # Формируем словари рейтинга
-        for user_id, score in results:
-            user_name = await get_user_name_from_db(user_id)
-
-            if score not in score_table:
-                score_table[score] = []
-                score_table_ids[score] = []
-
-            score_table[score].append(user_name)
-            score_table_ids[score].append(user_id)
-
-    # Сортируем по убыванию баллов
-    sorted_score_table = dict(sorted(score_table.items(), key=lambda x: x[0], reverse=True))
-    sorted_score_table_ids = dict(sorted(score_table_ids.items(), key=lambda x: x[0], reverse=True))
-
-    return sorted_score_table, sorted_score_table_ids
-
-
 async def show_final_results(bot: Bot, room_id: int, users: list[int]):
     """
-    Показывает финальные результаты соревнования с использованием вспомогательных функций
+    Формирует и выводит итоговые результаты соревнования в формате:
+    {
+        баллы: [список участников],
+        ...
+    }
     """
-    try:
-        # 1. Получаем отформатированную таблицу рейтинга
-        rating_text = await format_rating_table(room_id)
-        if "недоступен" in rating_text:
-            raise ValueError("Не удалось получить рейтинг")
+    # 1. Получаем данные участников
+    participants = []
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT U.name, RP.score 
+            FROM Room_Participants RP
+            JOIN User U ON RP.user_id = U.user_tg_id
+            WHERE RP.room_id = ?
+            ORDER BY RP.score DESC
+        """, (room_id,))
+        participants = cur.fetchall()
 
-        # 2. Получаем детальные данные для начисления баллов
-        users_rating, rating_ids = await get_names_rating(room_id, users)
-        places_data = calculate_places((users_rating, rating_ids))
+    if not participants:
+        await bot.send_message(
+            users[0],
+            "⚠ Нет данных об участниках"
+        )
+        return
 
-        # 3. Награждаем победителей
-        reward_points = {1: 500, 2: 300, 3: 100}
+    # 2. Создаем словарь {баллы: [имена]}
+    results = {}
+    for name, score in participants:
+        if score not in results:
+            results[score] = []
+        results[score].append(name)
 
-        for place, score, names, user_ids in places_data[:3]:  # Только первые 3 места
-            for user_id in user_ids:
-                try:
-                    update_player_score(user_id, room_id, reward_points[place])
-                    update_user_score(
-                        user_tg_id=user_id,
-                        score_delta=reward_points[place],
-                        increment_solved=False
-                    )
-                except Exception as e:
-                    print(f"Ошибка начисления баллов {user_id}: {e}")
+    # 3. Форматируем вывод
+    message_lines = ["🏆 Итоговые результаты:"]
+    for place, (score, names) in enumerate(sorted(results.items(), reverse=True), start=1):
+        # Определяем медаль для места
+        medal = {1: '🥇', 2: '🥈', 3: '🥉'}.get(place, '▫️')
+        names_str = ", ".join(names)
+        message_lines.append(f"{medal} {place}. {names_str} — {score} баллов")
 
-        # 4. Отправляем результаты всем участникам
-        for user_id in users:
-            try:
-                # Основное сообщение с рейтингом
-                await bot.send_message(
-                    user_id,
-                    f"🏁 Соревнование завершено!\n\n{rating_text}",
-                    parse_mode='Markdown'
-                )
+    result_message = "\n".join(message_lines)
 
-                # Персональное сообщение для призеров
-                user_place = next(
-                    (place for place, _, _, ids in places_data if user_id in ids),
-                    None
-                )
-
-                if user_place in reward_points:
-                    await bot.send_message(
-                        user_id,
-                        f"🎉 Вы заняли {user_place} место и получаете {reward_points[user_place]} баллов!",
-                        reply_markup=keyboards.main_menu
-                    )
-
-            except Exception as e:
-                print(f"Ошибка отправки сообщения {user_id}: {e}")
-
-        # 5. Обновляем статус комнаты
-        with connect() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE Room SET status = 'finished' 
-                WHERE id = ?
-            """, (room_id,))
-            conn.commit()
-
-    except Exception as e:
-        print(f"Ошибка в show_final_results: {e}")
-        creator_id = get_room_creator(room_id)
-        if creator_id:
+    # 4. Отправляем всем участникам
+    for user_id in users:
+        try:
             await bot.send_message(
-                creator_id,
-                "⚠ При подсчете результатов произошла ошибка",
+                user_id,
+                result_message,
                 reply_markup=keyboards.main_menu
             )
+        except Exception as e:
+            print(f"Ошибка отправки результатов пользователю {user_id}: {e}")
+
+    # 5. Обновляем статус комнаты
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE Room SET status = 'finished' 
+            WHERE id = ?
+        """, (room_id,))
+        conn.commit()
 
 
 @comp_router.message(F.text == "Выйти из соревнования")
@@ -764,13 +568,14 @@ async def enter_count_tasks_opened_room(callback: CallbackQuery, state: FSMConte
 @comp_router.message(Create_Room.count_tasks)
 async def create_room(message: Message, state: FSMContext, bot: Bot):
     try:
-        # Проверка количества задач
+        # Проверяем, что введено корректное число задач
         try:
             count_tasks = int(message.text)
             if count_tasks <= 0:
-                raise ValueError
+                await message.answer('❌ Число задач должно быть больше 0!')
+                return
         except ValueError:
-            await message.answer('❌ Пожалуйста, введите корректное число задач (больше 0)')
+            await message.answer('❌ Введите число (например, 3, 5, 10)!')
             return
 
         user_id = message.from_user.id
@@ -778,50 +583,49 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
         room_type = room_data.get("room_type")
         is_closed = (room_type == 'closed')
 
-        # Создаем комнату в БД (ключ передаем только для закрытых комнат)
+        # Создаём комнату с указанным количеством задач
         room_id = await create_room_in_db(
             user_id=user_id,
             is_closed=is_closed,
-            task_count=count_tasks
+            task_count=count_tasks  # Передаём count_tasks в БД
         )
 
         if not room_id:
-            await message.answer('❌ Не удалось создать комнату. Попробуйте позже')
+            await message.answer('❌ Не удалось создать комнату. Попробуйте позже.')
             await state.clear()
             return
 
         # Формируем сообщение в зависимости от типа комнаты
         if is_closed:
-            # Получаем пароль только для закрытой комнаты
             password = await get_room_password(room_id)
             message_text = (
-                f'✅ Вы создали закрытую комнату на {count_tasks} задач.\n'
-                f'Код подключения: *{password}*\n\n'
-                f'Отправьте этот код участникам для присоединения'
+                f'✅ Вы создали закрытую комнату на *{count_tasks}* задач.\n'
+                f'Код подключения: `{password}`\n\n'
+                f'Отправьте этот код участникам для присоединения.'
             )
             await add_user_in_closed_room(user_id, password)
         else:
+            password = await get_room_password(room_id)
             message_text = (
-                f'✅ Вы создали открытую комнату на {count_tasks} задач.\n'
-                f'Участники могут присоединиться через меню соревнований'
+                f'✅ Вы создали открытую комнату на *{count_tasks}* задач.\n'
+                f'Код подключения: `{password}`\n\n'
+                f'Участники могут присоединиться случайно или по коду.'
             )
 
         await message.answer(
             message_text,
-            parse_mode='Markdown' if is_closed else None,
+            parse_mode='Markdown',
             reply_markup=keyboards.start_competition
         )
-        add = await add_creator_in_room(room_id)
 
-        if add:
-            await message.answer('✅ Вы присоединились к комнате!', reply_markup=keyboards.start_competition)
-
-        await state.update_data(room_id=room_id, in_room=True)
+        # Добавляем создателя в комнату
+        await add_creator_in_room(room_id)
+        await state.update_data(room_id=room_id, count_tasks=count_tasks)
         await state.set_state(Room_States.in_room)
 
     except Exception as e:
         print(f"Ошибка при создании комнаты: {e}")
-        await message.answer('❌ Произошла ошибка при создании комнаты')
+        await message.answer('❌ Произошла ошибка при создании комнаты.')
         await state.clear()
     
 @comp_router.callback_query(F.data == 'join_closed_room')
@@ -832,66 +636,57 @@ async def enter_password(callback: CallbackQuery, state: FSMContext):
 
 
 @comp_router.message(Join_Closed_Room.password)
-async def join_closed_room(message: Message, state: FSMContext, bot: Bot):
-    password = message.text.strip()
+async def join_by_password(message: Message, state: FSMContext):
+    """Поиск комнаты по коду (проверяет ВСЕ комнаты)"""
     user_id = message.from_user.id
+    password = message.text.strip()
 
-    # Используем реальную проверку пароля
-    room_id = await add_user_in_closed_room(user_id, password)
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, is_closed FROM Room 
+            WHERE key = ? AND status = 'waiting'
+        """, (password,))
+        room = cur.fetchone()
 
-    if room_id:
-        await message.answer('✅ Вы успешно присоединились к комнате!',
-                             reply_markup=keyboards.exit_competition)
+    if not room:
+        await message.answer("❌ Комната не найдена или игра уже началась")
+        return
 
-        # Получаем список участников
-        participants = await get_room_users(room_id)
-        if participants:
-            participants_text = "Участники комнаты:\n" + "\n".join(participants)
-            await message.answer(participants_text)
-
-        # Уведомляем других участников
-        user_name = await get_user_name_from_db(user_id)
-        await notify_room_members(bot, room_id, f"Новый участник: {user_name}")
-
-        await state.update_data(room_id=room_id, in_room=True)
-        await state.set_state(Room_States.in_room)
+    room_id, is_closed = room
+    if join_room(user_id, room_id):
+        room_type = "закрытой" if is_closed else "открытой"
+        await message.answer(
+            f"✅ Вы присоединились к {room_type} комнате!",
+            reply_markup=keyboards.exit_competition
+        )
     else:
-        await message.answer('❌ Неверный код комнаты или комната не существует')
-        await state.set_state(Join_Closed_Room.password)  # Повторный запрос пароля
+        await message.answer("❌ Не удалось присоединиться")
 
 
 @comp_router.callback_query(F.data == 'join_opened_room')
-async def join_opened_room(callback: CallbackQuery, state: FSMContext, bot: Bot):
+async def join_random_room(callback: CallbackQuery, state: FSMContext):
+    """Присоединение к любой открытой комнате в статусе waiting"""
     user_id = callback.from_user.id
 
-    # Используем реальную функцию добавления
-    room_id = await add_user_in_random_room(user_id)
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id FROM Room 
+            WHERE is_closed = 0 AND status = 'waiting'
+            LIMIT 1
+        """)
+        room = cur.fetchone()
 
-    if room_id:
-        await callback.message.answer('✅ Вы присоединились к открытой комнате!',
-                                      reply_markup=keyboards.exit_competition)
+    if not room:
+        await callback.message.answer("❌ Нет доступных открытых комнат")
+        return
 
-        # Получаем информацию о комнате
-        with connect() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT COUNT(*) FROM Room_Participants 
-                WHERE room_id = ? AND user_id != ?
-            """, (room_id, user_id))
-            other_participants = cur.fetchone()[0]
-
-        if other_participants > 0:
-            participants = await get_room_users(room_id)
-            await callback.message.answer(f"Участники комнаты:\n{', '.join(participants)}")
-
-            # Уведомляем других участников
-            user_name = await get_user_name_from_db(user_id)
-            await notify_room_members(bot, room_id, f"Новый участник: {user_name}", user_id)
-        else:
-            await callback.message.answer("Вы первый участник в комнате!")
-
-        await state.update_data(room_id=room_id, in_room=True)
-        await state.set_state(Room_States.in_room)
+    room_id = room[0]
+    if join_room(user_id, room_id):
+        await callback.message.answer(
+            "✅ Вы присоединились к случайной комнате!",
+            reply_markup=keyboards.exit_competition
+        )
     else:
-        await callback.message.answer('❌ Нет доступных открытых комнат. Создайте свою!')
-        await callback.answer()
+        await callback.message.answer("❌ Не удалось присоединиться")
