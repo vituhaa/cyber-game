@@ -4,7 +4,6 @@ import asyncio
 from aiogram import Bot
 from DataBase.DBConnect import connect
 from typing import Optional
-from DataBase.Tables.RoomTable import create_room as db_create_room
 from DataBase.Tables.RoomTable import finish_room as async_finish_room
 from aiogram.fsm.storage.base import StorageKey, BaseStorage
 
@@ -28,7 +27,7 @@ class CompetitionStates(StatesGroup):
     waiting_for_answer = State()
 
 
-async def create_room_in_db(user_id: int, is_closed: bool, task_count: int = None) -> Optional[int]:
+async def create_room_in_db(user_id: int, is_closed: bool, bot: Bot, task_count: int = None) -> Optional[int]:
     """Создает комнату без использования task_count"""
     try:
         with connect() as conn:
@@ -48,11 +47,61 @@ async def create_room_in_db(user_id: int, is_closed: bool, task_count: int = Non
             room_id = cur.lastrowid
             conn.commit()
             print(f"[SUCCESS] Комната создана. ID: {room_id}")
+
+            # Запускаем рассылку участников
+            asyncio.create_task(send_participants_updates(room_id, bot))
+
             return room_id
 
     except Exception as e:
         print(f"[ERROR] Ошибка создания комнаты: {e}")
         return None
+
+
+async def send_participants_updates(room_id: int, bot: Bot):
+    """Периодически отправляет обновленный список участников"""
+    while True:
+        try:
+            # Проверяем статус комнаты
+            with connect() as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT status FROM Room WHERE id = ?", (room_id,))
+                status = cur.fetchone()[0]
+
+                if status != 'waiting':
+                    break
+
+                # Получаем список участников
+                participants = await get_room_users(room_id)
+                message = "👥 Текущие участники:\n" + "\n".join(f"• {name}" for name in participants)
+
+                # Отправляем всем участникам
+                user_ids = await get_room_users_id(room_id)
+                for user_id in user_ids:
+                    try:
+                        await bot.send_message(user_id, message)
+                    except Exception as e:
+                        print(f"Ошибка отправки списка участников: {e}")
+
+        except Exception as e:
+            print(f"Ошибка в send_participants_updates: {e}")
+
+        await asyncio.sleep(20)  # Интервал рассылки
+
+
+async def notify_new_participant(room_id: int, new_user_name: str, bot: Bot):
+    """Уведомляет всех участников о новом пользователе"""
+    try:
+        user_ids = await get_room_users_id(room_id)
+        message = f"🎉 Новый участник: {new_user_name}"
+
+        for user_id in user_ids:
+            try:
+                await bot.send_message(user_id, message)
+            except Exception as e:
+                print(f"Ошибка уведомления о новом участнике: {e}")
+    except Exception as e:
+        print(f"Ошибка в notify_new_participant: {e}")
         
 async def get_room_password(room_id: int) -> str:
     """Возвращает ключ комнаты из БД"""
@@ -387,6 +436,11 @@ async def get_last_task_in_room_from_db(room_id: int) -> Optional[tuple]:
 @comp_router.message(CompetitionStates.waiting_for_answer)
 async def handle_competition_answer(message: Message, state: FSMContext):
     """Обработчик ответов пользователей во время соревнования"""
+    # Проверяем, не хочет ли пользователь выйти
+    if message.text == 'Выйти из соревнования':
+        await exit_competition(message, state)
+        return
+
     try:
         user_id = message.from_user.id
         user_answer = message.text.strip()
@@ -668,6 +722,7 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
         room_id = await create_room_in_db(
             user_id=user_id,
             is_closed=is_closed,
+            bot=bot,
             task_count=count_tasks  # Передаём count_tasks в БД
         )
 
@@ -721,9 +776,7 @@ async def enter_password(callback: CallbackQuery, state: FSMContext):
 @comp_router.message(Join_Closed_Room.password)
 async def join_by_password(message: Message, state: FSMContext):
     user_id = message.from_user.id
-    password = message.text.strip().upper()  # Приводим к верхнему регистру
-
-    print(f"[DEBUG] Trying to join with key: {password}")  # Логирование
+    password = message.text.strip().upper()
 
     with connect() as conn:
         cur = conn.cursor()
@@ -734,21 +787,18 @@ async def join_by_password(message: Message, state: FSMContext):
         room = cur.fetchone()
 
         if not room:
-            # Добавляем отладочную информацию
-            cur.execute("SELECT key, status FROM Room WHERE key = ?", (password,))
-            debug_info = cur.fetchone()
-            if debug_info:
-                print(f"[DEBUG] Room found but wrong status: {debug_info}")
-            else:
-                print(f"[DEBUG] No room found with key: {password}")
-
             await message.answer("❌ Комната не найдена или игра уже началась")
             return
 
         room_id, is_closed, status = room
-        print(f"[DEBUG] Found room: ID={room_id}, Closed={is_closed}, Status={status}")
 
         if join_room(user_id, room_id):
+            # Получаем имя нового участника
+            user_name = await get_user_name_from_db(user_id)
+
+            # Уведомляем всех о новом участнике
+            await notify_new_participant(room_id, user_name, message.bot)
+
             room_type = "закрытой" if is_closed else "открытой"
             await message.answer(
                 f"✅ Вы присоединились к {room_type} комнате!",
@@ -778,6 +828,12 @@ async def join_random_room(callback: CallbackQuery, state: FSMContext):
 
     room_id = room[0]
     if join_room(user_id, room_id):
+        # Получаем имя нового участника
+        user_name = await get_user_name_from_db(user_id)
+
+        # Уведомляем всех о новом участнике
+        await notify_new_participant(room_id, user_name, callback.message.bot)
+
         await callback.message.answer(
             "✅ Вы присоединились к случайной комнате!",
             reply_markup=keyboards.exit_competition
