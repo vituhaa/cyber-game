@@ -89,17 +89,46 @@ async def create_room_in_db(user_id: int, is_closed: bool, bot: Bot, task_count:
 #         await asyncio.sleep(20)  # Интервал рассылки
 
 
-async def notify_new_participant(room_id: int, new_user_name: str, bot: Bot):
-    """Уведомляет всех участников о новом пользователе"""
+async def notify_new_participant(room_id: int, new_user_id: int, bot: Bot):
+    """Уведомляет о новом участнике и отправляет список текущих участников"""
     try:
-        user_ids = await get_room_users_id(room_id)
-        message = f"🎉 Новый участник: {new_user_name}"
+        # Получаем имя нового участника
+        new_user_name = get_username_by_tg_id(new_user_id)
 
-        for user_id in user_ids:
-            try:
-                await bot.send_message(user_id, message)
-            except Exception as e:
-                print(f"Ошибка уведомления о новом участнике: {e}")
+        # Получаем список текущих участников (без нового)
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT U.name FROM Room_Participants RP
+                JOIN User U ON RP.user_id = U.user_tg_id
+                WHERE RP.room_id = ? AND RP.user_id != ?
+            """, (room_id, new_user_id))
+            existing_participants = [row[0] for row in cur.fetchall()]
+
+        # Сообщение для нового участника
+        if existing_participants:
+            participants_list = "👥 Уже в комнате:\n" + "\n".join(f"• {name}" for name in existing_participants)
+            await bot.send_message(
+                new_user_id,
+                f"✅ Вы присоединились к комнате!\n{participants_list}"
+            )
+        else:
+            await bot.send_message(
+                new_user_id,
+                "✅ Вы присоединились к комнате! Ожидайте начала соревнования."
+            )
+
+        # Уведомление для остальных участников
+        if existing_participants:
+            message = f"🎉 Новый участник: {new_user_name}"
+            user_ids = await get_room_users_id(room_id)
+            for user_id in user_ids:
+                if user_id != new_user_id:
+                    try:
+                        await bot.send_message(user_id, message)
+                    except Exception as e:
+                        print(f"Ошибка уведомления о новом участнике: {e}")
+
     except Exception as e:
         print(f"Ошибка в notify_new_participant: {e}")
         
@@ -259,6 +288,7 @@ async def save_task_in_room(room_id: int, task_id: int) -> bool:
         print(f"Ошибка при добавлении задачи в комнату: {e}")
         return False
 
+
 @comp_router.message(F.text == 'Начать соревнование')
 async def start_competition(message: Message, state: FSMContext, bot: Bot):
     """Обработчик начала соревнования в комнате."""
@@ -272,23 +302,37 @@ async def start_competition(message: Message, state: FSMContext, bot: Bot):
             await message.answer("❌ Сначала создайте или войдите в комнату")
             return
 
+        # Получаем список всех участников
         participants = await get_room_users_id(room_id)
         if not participants:
             await message.answer("⚠️ В комнате нет участников")
             return
 
-        # Получаем storage через FSMContext
-        storage = state.storage
+        # Отправляем единоразово полный список участников
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT U.name FROM Room_Participants RP
+                JOIN User U ON RP.user_id = U.user_tg_id
+                WHERE RP.room_id = ?
+                ORDER BY RP.score DESC
+            """, (room_id,))
+            participants_names = [row[0] for row in cur.fetchall()]
 
-        # Уведомляем участников
-        for user_id in participants:
-            await bot.send_message(
-                user_id,
-                f"🏁 Соревнование начинается!\nКоличество задач: {count_tasks}",
-                reply_markup=keyboards.exit_competition
-            )
+        participants_list = "👥 Участники соревнования:\n" + "\n".join(f"• {name}" for name in participants_names)
 
-        await run_competition_tasks(bot, room_id, participants, state, storage)
+        for participant_id in participants:
+            try:
+                await bot.send_message(
+                    participant_id,
+                    f"🏁 Соревнование начинается!\n{participants_list}\n\nКоличество задач: {count_tasks}",
+                    reply_markup=keyboards.exit_competition
+                )
+            except Exception as e:
+                print(f"Ошибка уведомления участника {participant_id}: {e}")
+
+        # Запускаем соревнование
+        await run_competition_tasks(bot, room_id, participants, state, state.storage)
 
     except Exception as e:
         print(f"Ошибка при запуске соревнования: {e}")
@@ -815,26 +859,14 @@ async def join_by_password(message: Message, state: FSMContext):
         room_id, is_closed, status = room
 
         if join_room(user_id, room_id):
-    # Получаем имя нового участника
-            user_name = await get_user_name_from_db(user_id)
-
-    # Уведомляем остальных
-            await notify_new_participant(room_id, user_name, message.bot)
-
-    # 🔽 ДОБАВЛЯЕМ: Отправка списка участников этому пользователю
-            participants = await get_room_users(room_id)
-            participant_list = "👥 Текущие участники:\n" + "\n".join(f"• {name}" for name in participants)
-            await message.answer(participant_list)
+            # Уведомляем о новом участнике
+            await notify_new_participant(room_id, user_id, message.bot)
 
             room_type = "закрытой" if is_closed else "открытой"
             await message.answer(
                 f"✅ Вы присоединились к {room_type} комнате!",
                 reply_markup=keyboards.exit_competition
             )
-
-
-            
-
         else:
             await message.answer("❌ Не удалось присоединиться")
 
@@ -859,11 +891,8 @@ async def join_random_room(callback: CallbackQuery, state: FSMContext):
 
     room_id = room[0]
     if join_room(user_id, room_id):
-        # Получаем имя нового участника
-        user_name = await get_user_name_from_db(user_id)
-
-        # Уведомляем всех о новом участнике
-        await notify_new_participant(room_id, user_name, callback.message.bot)
+        # Уведомляем о новом участнике
+        await notify_new_participant(room_id, user_id, callback.message.bot)
 
         await callback.message.answer(
             "✅ Вы присоединились к случайной комнате!",
