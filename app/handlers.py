@@ -270,7 +270,7 @@ async def getting_hint(callback: CallbackQuery, state: FSMContext):
         return
     
     if not await are_there_any_hints(task_id, hint_count):
-        await state.updade_data(hints_exhausted=True)
+        await state.update_data(hints_exhausted=True)
         await callback.message.answer(
             "🔒 Количество подсказок иссякло. Сдаться?",
             reply_markup=keyboards.exit_game_after_hints_turn_zero

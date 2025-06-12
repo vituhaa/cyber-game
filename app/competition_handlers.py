@@ -49,7 +49,7 @@ async def create_room_in_db(user_id: int, is_closed: bool, bot: Bot, task_count:
             print(f"[SUCCESS] Комната создана. ID: {room_id}")
 
             # Запускаем рассылку участников
-            asyncio.create_task(send_participants_updates(room_id, bot))
+            #asyncio.create_task(send_participants_updates(room_id, bot))
 
             return room_id
 
@@ -58,35 +58,35 @@ async def create_room_in_db(user_id: int, is_closed: bool, bot: Bot, task_count:
         return None
 
 
-async def send_participants_updates(room_id: int, bot: Bot):
-    """Периодически отправляет обновленный список участников"""
-    while True:
-        try:
-            # Проверяем статус комнаты
-            with connect() as conn:
-                cur = conn.cursor()
-                cur.execute("SELECT status FROM Room WHERE id = ?", (room_id,))
-                status = cur.fetchone()[0]
+# async def send_participants_updates(room_id: int, bot: Bot):
+#     """Периодически отправляет обновленный список участников"""
+#     while True:
+#         try:
+#             # Проверяем статус комнаты
+#             with connect() as conn:
+#                 cur = conn.cursor()
+#                 cur.execute("SELECT status FROM Room WHERE id = ?", (room_id,))
+#                 status = cur.fetchone()[0]
 
-                if status != 'waiting':
-                    break
+#                 if status != 'waiting':
+#                     break
 
-                # Получаем список участников
-                participants = await get_room_users(room_id)
-                message = "👥 Текущие участники:\n" + "\n".join(f"• {name}" for name in participants)
+#                 # Получаем список участников
+#                 participants = await get_room_users(room_id)
+#                 message = "👥 Текущие участники:\n" + "\n".join(f"• {name}" for name in participants)
 
-                # Отправляем всем участникам
-                user_ids = await get_room_users_id(room_id)
-                for user_id in user_ids:
-                    try:
-                        await bot.send_message(user_id, message)
-                    except Exception as e:
-                        print(f"Ошибка отправки списка участников: {e}")
+#                 # Отправляем всем участникам
+#                 user_ids = await get_room_users_id(room_id)
+#                 for user_id in user_ids:
+#                     try:
+#                         await bot.send_message(user_id, message)
+#                     except Exception as e:
+#                         print(f"Ошибка отправки списка участников: {e}")
 
-        except Exception as e:
-            print(f"Ошибка в send_participants_updates: {e}")
+#         except Exception as e:
+#             print(f"Ошибка в send_participants_updates: {e}")
 
-        await asyncio.sleep(20)  # Интервал рассылки
+#         await asyncio.sleep(20)  # Интервал рассылки
 
 
 async def notify_new_participant(room_id: int, new_user_name: str, bot: Bot):
@@ -312,16 +312,32 @@ async def run_competition_tasks(
         conn.commit()
 
     for curr_index in range(1, count_tasks + 1):
-        task = get_random_task()
+        task = None
+        max_attempts = 20  # ограничим количество попыток, чтобы не попасть в бесконечный цикл
+
+        for _ in range(max_attempts):
+            candidate = get_random_task()
+            if not candidate:
+                continue
+
+            task_id, title, *_ = candidate
+            if not is_in_room(room_id, task_id):
+                task = candidate
+                break  # нашли подходящую задачу
+
         if not task:
-            await bot.send_message(users[0], "❌ Не удалось получить задачу.")
+            await bot.send_message(users[0], "❌ Не удалось найти уникальную задачу.")
             continue
 
         task_id, title, *_ = task
         add_task_to_room(room_id, task_id)
 
+
         # Устанавливаем состояние waiting_for_answer для всех участников
         for user_id in users:
+            participants = await get_room_users_id(room_id)
+            if not (user_id in participants):
+                continue
             try:
                 await bot.send_message(
                     user_id,
@@ -349,7 +365,8 @@ async def run_competition_tasks(
         await asyncio.sleep(15)  # Таймер на решение задачи
 
     # После завершения всех задач сбрасываем состояния
-    for user_id in users:
+    participants = await get_room_users_id(room_id)
+    for user_id in participants:
         try:
             key = StorageKey(
                 chat_id=user_id,
@@ -361,7 +378,9 @@ async def run_competition_tasks(
         except Exception as e:
             print(f"Ошибка сброса состояния для пользователя {user_id}: {e}")
 
+    print(f"✅ Завершены все задания в комнате {room_id}. Вызываем show_final_results...")
     await show_final_results(bot, room_id, users, state)
+
 
 
 async def increase_score(user_id: int, room_id: int, score_delta: int = 100):
@@ -524,16 +543,19 @@ async def handle_competition_answer(message: Message, state: FSMContext):
             await message.answer(f"✅ Верно! +{score} баллов")
 
             # Уведомляем создателя комнаты (если это не он сам)
-            creator_id = get_room_creator(room_id)
-            if creator_id and creator_id != user_id:
-                try:
-                    user_name = get_username_by_tg_id(user_id)
-                    await message.bot.send_message(
-                        creator_id,
+            # participants — список user_id всех участников комнаты
+            participants = await get_room_users_id(room_id)
+            for participant_id in participants:
+                if participant_id != user_id:
+                    try:
+                        user_name = get_username_by_tg_id(user_id)
+                        await message.bot.send_message(
+                        participant_id,
                         f"🎯 Участник {user_name} правильно решил задачу '{title}'"
-                    )
-                except Exception as e:
-                    print(f"Ошибка уведомления создателя: {e}")
+                        )
+                    except Exception as e:
+                        print(f"Ошибка уведомления участника {participant_id}: {e}")
+
 
         else:
             await message.answer("❌ Неверный ответ. Попробуйте еще раз!")
@@ -574,12 +596,12 @@ async def show_final_results(bot: Bot, room_id: int, users: list[int], state: FS
         """, (room_id,))
         participants = cur.fetchall()
 
-    if not participants:
-        await bot.send_message(
-            users[0],
-            "⚠ Нет данных об участниках"
-        )
-        return
+    #if not participants:
+    #    await bot.send_message(
+    #        users[0],
+    #        "⚠ Нет данных об участниках"
+    #    )
+    #    return
 
     # 2. Создаем словарь {баллы: [имена]}
     results = {}
@@ -793,17 +815,26 @@ async def join_by_password(message: Message, state: FSMContext):
         room_id, is_closed, status = room
 
         if join_room(user_id, room_id):
-            # Получаем имя нового участника
+    # Получаем имя нового участника
             user_name = await get_user_name_from_db(user_id)
 
-            # Уведомляем всех о новом участнике
+    # Уведомляем остальных
             await notify_new_participant(room_id, user_name, message.bot)
+
+    # 🔽 ДОБАВЛЯЕМ: Отправка списка участников этому пользователю
+            participants = await get_room_users(room_id)
+            participant_list = "👥 Текущие участники:\n" + "\n".join(f"• {name}" for name in participants)
+            await message.answer(participant_list)
 
             room_type = "закрытой" if is_closed else "открытой"
             await message.answer(
                 f"✅ Вы присоединились к {room_type} комнате!",
                 reply_markup=keyboards.exit_competition
             )
+
+
+            
+
         else:
             await message.answer("❌ Не удалось присоединиться")
 

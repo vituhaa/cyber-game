@@ -99,7 +99,8 @@ async def finish_room(
         storage: BaseStorage
 ) -> bool:
     """
-    Завершает комнату и сбрасывает состояния всех участников
+    Завершает комнату, сбрасывает состояния всех участников,
+    удаляет участников, задачи и саму комнату из базы данных.
 
     Args:
         room_id: ID комнаты для завершения
@@ -110,32 +111,34 @@ async def finish_room(
         bool: True если операция выполнена успешно
     """
     try:
-        # 1. Обновляем статус комнаты в БД
         with connect() as conn:
             cur = conn.cursor()
 
-            # Проверяем существование комнаты
+            # Проверка: существует ли комната
             cur.execute("SELECT id FROM Room WHERE id = ?", (room_id,))
             if not cur.fetchone():
                 return False
 
-            # Обновляем статус
-            cur.execute(
-                "UPDATE Room SET status = 'finished', is_closed = 1 WHERE id = ?",
-                (room_id,)
-            )
-
-            # Получаем всех участников
+            # Получаем всех участников комнаты
             cur.execute("SELECT user_id FROM Room_Participants WHERE room_id = ?", (room_id,))
             participants = [row[0] for row in cur.fetchall()]
 
+            # Удаляем участников комнаты
+            cur.execute("DELETE FROM Room_Participants WHERE room_id = ?", (room_id,))
+
+            # Удаляем задачи комнаты
+            cur.execute("DELETE FROM Room_Tasks WHERE room_id = ?", (room_id,))
+
+            # Удаляем саму комнату
+            cur.execute("DELETE FROM Room WHERE id = ?", (room_id,))
+
             conn.commit()
 
-        # 2. Сбрасываем состояния всех участников
+        # Сброс FSM состояния и данных для участников
         for user_id in participants:
             try:
                 key = StorageKey(
-                    chat_id=user_id,  # Для приватных чатов chat_id = user_id
+                    chat_id=user_id,
                     user_id=user_id,
                     bot_id=bot.id
                 )
@@ -150,4 +153,3 @@ async def finish_room(
     except Exception as e:
         print(f"Ошибка при завершении комнаты {room_id}: {e}")
         return False
-

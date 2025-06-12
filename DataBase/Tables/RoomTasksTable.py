@@ -44,3 +44,14 @@ def get_last_task_in_room(room_id):
         """, (room_id,))
         result = cur.fetchone()
         return result[0] if result else None
+    
+def is_in_room(room_id, task_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1
+            FROM Room_Tasks
+            WHERE room_id = ? AND task_id = ?
+            LIMIT 1
+        """, (room_id, task_id))
+        return cur.fetchone() is not None

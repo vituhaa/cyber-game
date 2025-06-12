@@ -72,3 +72,14 @@ def remove_participant_from_room(room_id, user_id):
             WHERE room_id = ? AND user_id = ?
         """, (room_id, user_id))
         conn.commit()
+
+def is_user_in_room(room_id, user_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT 1 FROM Room_Participants
+            WHERE room_id = ? AND user_id = ?
+            LIMIT 1
+        """, (room_id, user_id))
+        return cur.fetchone() is not None
+
