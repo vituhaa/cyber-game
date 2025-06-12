@@ -110,7 +110,7 @@ async def notify_new_participant(room_id: int, new_user_id: int, bot: Bot):
             participants_list = "👥 Уже в комнате:\n" + "\n".join(f"• {name}" for name in existing_participants)
             await bot.send_message(
                 new_user_id,
-                f"✅ Вы присоединились к комнате!\n{participants_list}"
+                f"{participants_list}"
             )
         else:
             await bot.send_message(
@@ -376,6 +376,8 @@ async def run_competition_tasks(
         task_id, title, *_ = task
         add_task_to_room(room_id, task_id)
 
+        description = task[4]
+        question = task[5]
 
         # Устанавливаем состояние waiting_for_answer для всех участников
         for user_id in users:
@@ -385,7 +387,8 @@ async def run_competition_tasks(
             try:
                 await bot.send_message(
                     user_id,
-                    f"📝 Задание {curr_index}/{count_tasks}\n📌 *{title}*\n(Введите ответ сообщением)",
+
+                    f"📝 Задание {curr_index}/{count_tasks}\n\n📌 *{title}*\n\n📝 *Описание:* {description} \n\n*❓ Вопрос:* {question} \n\n (Введите ответ сообщением)",
                     parse_mode='Markdown'
                 )
 
@@ -860,13 +863,13 @@ async def join_by_password(message: Message, state: FSMContext):
 
         if join_room(user_id, room_id):
             # Уведомляем о новом участнике
-            await notify_new_participant(room_id, user_id, message.bot)
 
             room_type = "закрытой" if is_closed else "открытой"
             await message.answer(
                 f"✅ Вы присоединились к {room_type} комнате!",
                 reply_markup=keyboards.exit_competition
             )
+            await notify_new_participant(room_id, user_id, message.bot)
         else:
             await message.answer("❌ Не удалось присоединиться")
 
