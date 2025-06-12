@@ -3,8 +3,10 @@ from pathlib import Path
 from datetime import datetime
 import random
 import string
-import sqlite3
 from typing import Optional
+from aiogram.fsm.storage.base import StorageKey, BaseStorage
+from aiogram import Bot
+from sqlite3 import connect
 
 project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
@@ -91,9 +93,61 @@ def start_game(room_id):
         cur.execute("UPDATE Room SET status = 'active' WHERE id = ?", (room_id,))
 
 
+async def finish_room(
+        room_id: int,
+        bot: Bot,
+        storage: BaseStorage
+) -> bool:
+    """
+    Завершает комнату и сбрасывает состояния всех участников
 
-def finish_room(room_id):
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("UPDATE Room SET status = 'finished', is_closed = 1 WHERE id = ?", (room_id,))
+    Args:
+        room_id: ID комнаты для завершения
+        bot: Экземпляр бота (для формирования StorageKey)
+        storage: Хранилище состояний FSM
+
+    Returns:
+        bool: True если операция выполнена успешно
+    """
+    try:
+        # 1. Обновляем статус комнаты в БД
+        with connect('bot.db') as conn:
+            cur = conn.cursor()
+
+            # Проверяем существование комнаты
+            cur.execute("SELECT id FROM Room WHERE id = ?", (room_id,))
+            if not cur.fetchone():
+                return False
+
+            # Обновляем статус
+            cur.execute(
+                "UPDATE Room SET status = 'finished', is_closed = 1 WHERE id = ?",
+                (room_id,)
+            )
+
+            # Получаем всех участников
+            cur.execute("SELECT user_id FROM Room_Participants WHERE room_id = ?", (room_id,))
+            participants = [row[0] for row in cur.fetchall()]
+
+            conn.commit()
+
+        # 2. Сбрасываем состояния всех участников
+        for user_id in participants:
+            try:
+                key = StorageKey(
+                    chat_id=user_id,  # Для приватных чатов chat_id = user_id
+                    user_id=user_id,
+                    bot_id=bot.id
+                )
+                await storage.set_state(key=key, state=None)
+                await storage.set_data(key=key, data={})
+            except Exception as e:
+                print(f"Ошибка сброса состояния для пользователя {user_id}: {e}")
+                continue
+
+        return True
+
+    except Exception as e:
+        print(f"Ошибка при завершении комнаты {room_id}: {e}")
+        return False
 

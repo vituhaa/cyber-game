@@ -1,14 +1,13 @@
-from aiogram import F, Router
-from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove
-from aiogram.filters import CommandStart, Command
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.context import FSMContext
+from aiogram.types import ReplyKeyboardRemove
 from app.handlers import *
 import asyncio
 from aiogram import Bot
 from DataBase.DBConnect import connect
-from typing import Optional, Any
+from typing import Optional
 from DataBase.Tables.RoomTable import create_room as db_create_room
+from DataBase.Tables.RoomTable import finish_room as async_finish_room
+from aiogram.fsm.storage.base import StorageKey, BaseStorage
+
 
 
 import app.keyboards as keyboards
@@ -201,7 +200,7 @@ async def get_room_id_for_user(user_id: int) -> int:
         return result[0] if result else None
 
 
-async def deleting_user_from_competition(user_id: int) -> bool:
+async def deleting_user_from_competition(user_id: int, message: Message, state: FSMContext) -> bool:
     """Удаляет пользователя из комнаты"""
     with connect() as conn:
         cur = conn.cursor()
@@ -219,7 +218,11 @@ async def deleting_user_from_competition(user_id: int) -> bool:
             cur.execute("SELECT COUNT(*) FROM Room_Participants WHERE room_id = ?", (room_id,))
             if cur.fetchone()[0] == 0:
                 # Если комната пуста - закрываем ее
-                finish_room(room_id)
+                await async_finish_room(
+                    room_id=room_id,
+                    bot=message.bot,  # или другой доступный экземпляр бота
+                    storage=state.storage
+                )
             return True
         return False
 
@@ -232,7 +235,6 @@ async def save_task_in_room(room_id: int, task_id: int) -> bool:
         print(f"Ошибка при добавлении задачи в комнату: {e}")
         return False
 
-
 @comp_router.message(F.text == 'Начать соревнование')
 async def start_competition(message: Message, state: FSMContext, bot: Bot):
     """Обработчик начала соревнования в комнате."""
@@ -240,7 +242,7 @@ async def start_competition(message: Message, state: FSMContext, bot: Bot):
         user_id = message.from_user.id
         data = await state.get_data()
         room_id = data.get('room_id')
-        count_tasks = data.get('count_tasks', 3)  # Берём из состояния
+        count_tasks = data.get('count_tasks', 3)
 
         if not room_id:
             await message.answer("❌ Сначала создайте или войдите в комнату")
@@ -251,6 +253,9 @@ async def start_competition(message: Message, state: FSMContext, bot: Bot):
             await message.answer("⚠️ В комнате нет участников")
             return
 
+        # Получаем storage через FSMContext
+        storage = state.storage
+
         # Уведомляем участников
         for user_id in participants:
             await bot.send_message(
@@ -259,20 +264,30 @@ async def start_competition(message: Message, state: FSMContext, bot: Bot):
                 reply_markup=keyboards.exit_competition
             )
 
-        # Передаём state в run_competition_tasks
-        await run_competition_tasks(bot, room_id, participants, state)
+        await run_competition_tasks(bot, room_id, participants, state, storage)
 
     except Exception as e:
         print(f"Ошибка при запуске соревнования: {e}")
         await message.answer("❌ Произошла ошибка")
 
-
-async def run_competition_tasks(bot: Bot, room_id: int, users: list[int], state: FSMContext):
-    """Запускает задачи в комнате на основе указанного количества."""
+async def run_competition_tasks(
+        bot: Bot,
+        room_id: int,
+        users: list[int],
+        state: FSMContext,
+        storage: BaseStorage
+):
+    """Запускает задачи в комнате и устанавливает состояние waiting_for_answer"""
     data = await state.get_data()
-    count_tasks = data.get("count_tasks", 3)  # По умолчанию 3, если не указано
+    count_tasks = data.get("count_tasks", 3)
 
-    for curr_index in range(1, count_tasks + 1):  # Используем count_tasks
+    # Устанавливаем статус комнаты как 'active'
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("UPDATE Room SET status = 'active' WHERE id = ?", (room_id,))
+        conn.commit()
+
+    for curr_index in range(1, count_tasks + 1):
         task = get_random_task()
         if not task:
             await bot.send_message(users[0], "❌ Не удалось получить задачу.")
@@ -281,17 +296,48 @@ async def run_competition_tasks(bot: Bot, room_id: int, users: list[int], state:
         task_id, title, *_ = task
         add_task_to_room(room_id, task_id)
 
-        task_text = f"📝 Задание {curr_index}/{count_tasks}\n📌 *{title}*\n(Введите ответ сообщением)"
-
+        # Устанавливаем состояние waiting_for_answer для всех участников
         for user_id in users:
             try:
-                await bot.send_message(user_id, task_text, parse_mode='Markdown')
+                await bot.send_message(
+                    user_id,
+                    f"📝 Задание {curr_index}/{count_tasks}\n📌 *{title}*\n(Введите ответ сообщением)",
+                    parse_mode='Markdown'
+                )
+
+                # Создаем StorageKey для пользователя
+                key = StorageKey(
+                    chat_id=user_id,
+                    user_id=user_id,
+                    bot_id=bot.id
+                )
+
+                # Устанавливаем состояние через storage
+                await storage.set_state(key=key, state=CompetitionStates.waiting_for_answer)
+                await storage.set_data(key=key, data={
+                    "room_id": room_id,
+                    "task_id": task_id
+                })
+
             except Exception as e:
                 print(f"Ошибка отправки пользователю {user_id}: {e}")
 
         await asyncio.sleep(15)  # Таймер на решение задачи
 
-    await show_final_results(bot, room_id, users)
+    # После завершения всех задач сбрасываем состояния
+    for user_id in users:
+        try:
+            key = StorageKey(
+                chat_id=user_id,
+                user_id=user_id,
+                bot_id=bot.id
+            )
+            await storage.set_state(key=key, state=None)
+            await storage.set_data(key=key, data={})
+        except Exception as e:
+            print(f"Ошибка сброса состояния для пользователя {user_id}: {e}")
+
+    await show_final_results(bot, room_id, users, state)
 
 
 async def increase_score(user_id: int, room_id: int, score_delta: int = 100):
@@ -362,36 +408,69 @@ async def get_last_task_in_room_from_db(room_id: int) -> Optional[tuple]:
         cur.execute("SELECT * FROM Task WHERE id = ?", (task_id,))
         return cur.fetchone()
 
+
 @comp_router.message(CompetitionStates.waiting_for_answer)
 async def handle_competition_answer(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    user_answer = message.text.strip()
-
+    """Обработчик ответов пользователей во время соревнования"""
     try:
-        # 1. Получаем данные о комнате пользователя
-        room_id = await get_room_id_for_user(user_id)
-        if not room_id:
-            await message.answer("⛔ Вы не участвуете в активном соревновании")
+        user_id = message.from_user.id
+        user_answer = message.text.strip()
+        data = await state.get_data()
+
+        # Получаем данные о комнате и задаче из состояния
+        room_id = data.get("room_id")
+        task_id = data.get("task_id")
+
+        # Проверяем наличие необходимых данных
+        if not room_id or not task_id:
+            await message.answer("⛔ Активное соревнование не найдено")
+            await state.clear()
             return
 
-        # 2. Получаем текущую задачу
-        last_task = await get_last_task_in_room_from_db(room_id)
-        if not last_task:
-            await message.answer("⛔ Нет активных задач для ответа")
+        # Проверяем статус комнаты
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT status FROM Room WHERE id = ?", (room_id,))
+            room_status_row = cur.fetchone()
+
+            if not room_status_row:
+                await message.answer("⛔ Комната не найдена")
+                await state.clear()
+                return
+
+            room_status = room_status_row[0]
+
+        if room_status != 'active':
+            await message.answer("⛔ Соревнование не активно или уже завершено")
+            await state.clear()
             return
 
-        task_id, title, _, _, _, _, correct_answer, _ = last_task
+        # Получаем данные о текущей задаче
+        with connect() as conn:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT title, type_id, difficulty, correct_answer 
+                FROM Task WHERE id = ?
+            """, (task_id,))
+            task_data = cur.fetchone()
 
-        # 3. Проверяем ответ
+        if not task_data:
+            await message.answer("⛔ Задача не найдена")
+            await state.clear()
+            return
+
+        title, _, difficulty, correct_answer = task_data
+
+        # Проверяем ответ
         if check_answer(task_id, user_answer):
             # Начисляем очки с учетом сложности
-            difficulty = get_task_difficulty(task_id)
-            score = calculate_score(difficulty)  # 100, 200, 300 для easy, normal, hard
+            score = calculate_score(difficulty)
 
-            # Обновляем статистику
+            # Обновляем статистику в базе данных
             with connect() as conn:
                 cur = conn.cursor()
-                # Добавляем попытку
+
+                # Фиксируем успешную попытку
                 cur.execute("""
                     INSERT INTO Task_Attempt (user_id, task_id, is_correct, used_hints, solved_at)
                     VALUES (?, ?, 1, 0, datetime('now'))
@@ -404,15 +483,22 @@ async def handle_competition_answer(message: Message, state: FSMContext):
                     WHERE user_id = ? AND room_id = ?
                 """, (score, user_id, room_id))
 
+                # Обновляем общий рейтинг пользователя
+                cur.execute("""
+                    UPDATE User 
+                    SET rating = rating + ?, solved_count = solved_count + 1
+                    WHERE user_tg_id = ?
+                """, (score, user_id))
+
                 conn.commit()
 
             await message.answer(f"✅ Верно! +{score} баллов")
 
-            # Уведомляем создателя комнаты
+            # Уведомляем создателя комнаты (если это не он сам)
             creator_id = get_room_creator(room_id)
             if creator_id and creator_id != user_id:
-                user_name = await get_user_name_from_db(user_id)
                 try:
+                    user_name = get_username_by_tg_id(user_id)
                     await message.bot.send_message(
                         creator_id,
                         f"🎯 Участник {user_name} правильно решил задачу '{title}'"
@@ -421,7 +507,8 @@ async def handle_competition_answer(message: Message, state: FSMContext):
                     print(f"Ошибка уведомления создателя: {e}")
 
         else:
-            await message.answer("❌ Неверный ответ")
+            await message.answer("❌ Неверный ответ. Попробуйте еще раз!")
+
             # Фиксируем неудачную попытку
             with connect() as conn:
                 cur = conn.cursor()
@@ -434,9 +521,10 @@ async def handle_competition_answer(message: Message, state: FSMContext):
     except Exception as e:
         print(f"Ошибка обработки ответа: {e}")
         await message.answer("⚠ Произошла ошибка при проверке ответа")
+        await state.clear()
 
 
-async def show_final_results(bot: Bot, room_id: int, users: list[int]):
+async def show_final_results(bot: Bot, room_id: int, users: list[int], state: FSMContext):
     """
     Формирует и выводит итоговые результаты соревнования в формате:
     {
@@ -492,45 +580,63 @@ async def show_final_results(bot: Bot, room_id: int, users: list[int]):
         except Exception as e:
             print(f"Ошибка отправки результатов пользователю {user_id}: {e}")
 
-    # 5. Обновляем статус комнаты
-    with connect() as conn:
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE Room SET status = 'finished' 
-            WHERE id = ?
-        """, (room_id,))
-        conn.commit()
+    await async_finish_room(
+        room_id=room_id,
+        bot=bot,
+        storage=state.storage)
 
-
-@comp_router.message(F.text == "Выйти из соревнования")
+@comp_router.message(F.text == 'Выйти из соревнования')
 async def exit_competition(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    room_id = await get_room_id_for_user(user_id)
+    """Обработчик выхода пользователя из соревнования"""
+    try:
+        user_id = message.from_user.id
+        room_id = await get_room_id_for_user(user_id)
 
-    if room_id:
-        # Удаляем пользователя из комнаты
-        remove_participant_from_room(room_id, user_id)
+        if not room_id:
+            await message.answer("❌ Вы не находитесь в комнате")
+            return
 
-        # Проверяем, остались ли участники
+        # 1. Удаляем пользователя из комнаты
+        success = await deleting_user_from_competition(
+            user_id=user_id,
+            message=message,
+            state=state
+        )
+
+        if not success:
+            await message.answer("❌ Не удалось выйти из соревнования")
+            return
+
+        # 2. Сбрасываем состояние пользователя
+        await state.clear()
+
+        # 3. Получаем имя пользователя для уведомлений
+        user_name = await get_user_name_from_db(user_id)
+
+        # 4. Уведомляем остальных участников
         participants_count = get_room_participant_count(room_id)
-
-        await message.answer('Вы вышли из соревнования!',
-                             reply_markup=ReplyKeyboardRemove())
-        await message.answer('Вы вернулись в главное меню',
-                             reply_markup=keyboards.main_menu)
-
-        # Уведомляем остальных участников
         if participants_count > 0:
-            user_name = await get_user_name_from_db(user_id)
             await notify_room_members(
                 bot=message.bot,
                 room_id=room_id,
-                message=f"Участник {user_name} покинул соревнование"
+                message=f"⚠ Участник {user_name} покинул соревнование"
             )
-    else:
-        await message.answer('Вы не находитесь в комнате')
 
-    await state.clear()
+        # 5. Отправляем подтверждение выхода
+        await message.answer(
+            '✅ Вы успешно вышли из соревнования!',
+            reply_markup=ReplyKeyboardRemove()
+        )
+        await message.answer(
+            'Вы вернулись в главное меню',
+            reply_markup=keyboards.main_menu
+        )
+
+    except Exception as e:
+        print(f"Ошибка при выходе из соревнования: {e}")
+        await message.answer("❌ Произошла ошибка при выходе из комнаты")
+        await state.clear()
+
 
 @comp_router.message(F.text == 'Соревнование')
 async def choose_comp_format(message: Message):
