@@ -29,54 +29,29 @@ class CompetitionStates(StatesGroup):
 
 
 async def create_room_in_db(user_id: int, is_closed: bool, task_count: int = None) -> Optional[int]:
-    """Создает комнату с полным логированием всех этапов"""
-    print(f"\n[DEBUG] Начало создания комнаты. Параметры: user_id={user_id}, is_closed={is_closed}, task_count={task_count}")
-
+    """Создает комнату без использования task_count"""
     try:
-
-        # 2. Проверка существования пользователя
         with connect() as conn:
             cur = conn.cursor()
+            # Проверка пользователя
             cur.execute("SELECT 1 FROM User WHERE user_tg_id = ?", (user_id,))
             if not cur.fetchone():
-                print(f"[ERROR] Пользователь {user_id} не найден в базе")
+                print(f"[ERROR] Пользователь {user_id} не найден")
                 return None
 
-        # 3. Создание комнаты
-        print("[DEBUG] Вызов db_create_room...")
-        room_id = db_create_room(creator_id=user_id, is_closed=is_closed)
-        print(f"[DEBUG] Результат db_create_room: {room_id}")
+            # Создание комнаты (без task_count)
+            cur.execute("""
+                INSERT INTO Room (creator_id, is_closed, status, created_at, key)
+                VALUES (?, ?, 'waiting', datetime('now'), ?)
+            """, (user_id, is_closed, generate_random_key()))
 
-        if not room_id:
-            print("[ERROR] db_create_room вернул None без исключения")
-            return None
-
-        # 4. Сохранение количества задач (если указано)
-        if task_count:
-            print(f"[DEBUG] Пытаюсь сохранить task_count={task_count} для комнаты {room_id}")
-            try:
-                with connect() as conn:
-                    cur = conn.cursor()
-                    cur.execute("""
-                        UPDATE Room SET task_count = ? 
-                        WHERE id = ?
-                    """, (task_count, room_id))
-                    conn.commit()
-                    print("[DEBUG] Количество задач успешно сохранено")
-            except Exception as e:
-                print(f"[WARNING] Ошибка сохранения task_count: {e}")
-                # Не прерываем выполнение, т.к. комната уже создана
-
-        print(f"[SUCCESS] Комната успешно создана. ID: {room_id}")
-        return room_id
+            room_id = cur.lastrowid
+            conn.commit()
+            print(f"[SUCCESS] Комната создана. ID: {room_id}")
+            return room_id
 
     except Exception as e:
-        print(f"[CRITICAL ERROR] Исключение при создании комнаты:")
-        print(f"Тип ошибки: {type(e).__name__}")
-        print(f"Сообщение: {str(e)}")
-        print("Трассировка:")
-        import traceback
-        traceback.print_exc()
+        print(f"[ERROR] Ошибка создания комнаты: {e}")
         return None
         
 async def get_room_password(room_id: int) -> str:
@@ -704,6 +679,7 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
         # Формируем сообщение в зависимости от типа комнаты
         if is_closed:
             password = await get_room_password(room_id)
+            print(f"[DEBUG] Created room ID: {room_id}, Key: {password}")
             message_text = (
                 f'✅ Вы создали закрытую комнату на *{count_tasks}* задач.\n'
                 f'Код подключения: `{password}`\n\n'
@@ -712,6 +688,7 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
             await add_user_in_closed_room(user_id, password)
         else:
             password = await get_room_password(room_id)
+            print(f"[DEBUG] Created room ID: {room_id}, Key: {password}")
             message_text = (
                 f'✅ Вы создали открытую комнату на *{count_tasks}* задач.\n'
                 f'Код подключения: `{password}`\n\n'
@@ -743,31 +720,42 @@ async def enter_password(callback: CallbackQuery, state: FSMContext):
 
 @comp_router.message(Join_Closed_Room.password)
 async def join_by_password(message: Message, state: FSMContext):
-    """Поиск комнаты по коду (проверяет ВСЕ комнаты)"""
     user_id = message.from_user.id
-    password = message.text.strip()
+    password = message.text.strip().upper()  # Приводим к верхнему регистру
+
+    print(f"[DEBUG] Trying to join with key: {password}")  # Логирование
 
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, is_closed FROM Room 
+            SELECT id, is_closed, status FROM Room 
             WHERE key = ? AND status = 'waiting'
         """, (password,))
         room = cur.fetchone()
 
-    if not room:
-        await message.answer("❌ Комната не найдена или игра уже началась")
-        return
+        if not room:
+            # Добавляем отладочную информацию
+            cur.execute("SELECT key, status FROM Room WHERE key = ?", (password,))
+            debug_info = cur.fetchone()
+            if debug_info:
+                print(f"[DEBUG] Room found but wrong status: {debug_info}")
+            else:
+                print(f"[DEBUG] No room found with key: {password}")
 
-    room_id, is_closed = room
-    if join_room(user_id, room_id):
-        room_type = "закрытой" if is_closed else "открытой"
-        await message.answer(
-            f"✅ Вы присоединились к {room_type} комнате!",
-            reply_markup=keyboards.exit_competition
-        )
-    else:
-        await message.answer("❌ Не удалось присоединиться")
+            await message.answer("❌ Комната не найдена или игра уже началась")
+            return
+
+        room_id, is_closed, status = room
+        print(f"[DEBUG] Found room: ID={room_id}, Closed={is_closed}, Status={status}")
+
+        if join_room(user_id, room_id):
+            room_type = "закрытой" if is_closed else "открытой"
+            await message.answer(
+                f"✅ Вы присоединились к {room_type} комнате!",
+                reply_markup=keyboards.exit_competition
+            )
+        else:
+            await message.answer("❌ Не удалось присоединиться")
 
 
 @comp_router.callback_query(F.data == 'join_opened_room')

@@ -111,7 +111,7 @@ async def finish_room(
     """
     try:
         # 1. Обновляем статус комнаты в БД
-        with connect('bot.db') as conn:
+        with connect() as conn:
             cur = conn.cursor()
 
             # Проверяем существование комнаты
