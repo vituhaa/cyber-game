@@ -55,7 +55,7 @@ def get_room_id_by_key(key):
         cur.execute("SELECT id FROM Room WHERE key = ?", (key,))
         return cur.fetchone()[0]
     
-async def get_room_password(room_id: int) -> str:
+def get_room_password(room_id: int) -> str:
     """Возвращает ключ комнаты из БД"""
     with connect() as conn:
         cur = conn.cursor()
@@ -63,14 +63,14 @@ async def get_room_password(room_id: int) -> str:
         result = cur.fetchone()
         return result[0] if result else None
     
-async def check_password(password: str) -> bool:
+def check_password(password: str) -> bool:
     """Проверяет существование комнаты с таким паролем"""
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("SELECT id FROM Room WHERE key = ?", (password,))
         return cur.fetchone() is not None
     
-async def get_all_closed_rooms_ids() -> list[int]:
+def get_all_closed_rooms_ids() -> list[int]:
     """Возвращает список ID всех закрытых комнат в статусе waiting"""
     with connect() as conn:
         cur = conn.cursor()
@@ -80,7 +80,7 @@ async def get_all_closed_rooms_ids() -> list[int]:
         """)
         return [row[0] for row in cur.fetchall()]
     
-async def get_all_opened_rooms_ids() -> list[int]:
+def get_all_opened_rooms_ids() -> list[int]:
     """Возвращает список ID всех открытых комнат в статусе waiting"""
     with connect() as conn:
         cur = conn.cursor()

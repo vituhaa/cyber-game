@@ -73,7 +73,7 @@ def get_room_participants_with_score(room_id):
             JOIN User U ON RP.user_id = U.user_tg_id
             WHERE RP.room_id = ? ORDER BY RP.score DESC""",
             (room_id,))
-        return [row[0] for row in cur.fetchall()]
+        return cur.fetchall()
     
 def get_room_participants_without_news(room_id,new_user_id):
      with connect() as conn:
@@ -92,7 +92,7 @@ def get_room_users_id(room_id: int) -> list[int]:
         cur.execute("SELECT user_id FROM Room_Participants WHERE room_id = ?", (room_id,))
         return [row[0] for row in cur.fetchall()]
     
-async def get_room_id_for_user(user_id: int) -> int:
+def get_room_id_for_user(user_id: int) -> int:
     """Возвращает ID комнаты, в которой находится пользователь"""
     with connect() as conn:
         cur = conn.cursor()

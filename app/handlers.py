@@ -33,7 +33,7 @@ class Answer(StatesGroup):
 async def command_start(message: Message, state: FSMContext):
     user_id = message.from_user.id
 
-    user_name = await get_user_name_from_db(user_id)
+    user_name = get_user_name_from_db(user_id)
     await state.update_data(user_id=user_id)
 
     if user_name and user_name != "Имя не найдено":
@@ -59,7 +59,7 @@ async def register_user(user_id: int, name: str) -> bool:
         print(f"Ошибка при регистрации пользователя: {e}")
         return False
     
-async def get_user_name_from_db(user_id: int) -> str:
+def get_user_name_from_db(user_id: int) -> str:
     print(f"Получение имени для пользователя {user_id}")
     try:
         name = get_username_by_tg_id(user_id)
@@ -90,7 +90,7 @@ async def get_user_name(message: Message, state: FSMContext):
     
     registration_success = await register_user(user_id=message.from_user.id, name=message.text)
     
-    user_name = await get_user_name_from_db(message.from_user.id)
+    user_name = get_user_name_from_db(message.from_user.id)
     
     if registration_success:
         await message.answer(f'{user_name}, регистрация прошла успешно!', reply_markup=keyboards.main_menu) # open keyboard for user
@@ -375,14 +375,14 @@ async def get_stats_info(user_id: int) -> str:
         user_rating, solved_count = user_stats
 
         # Получаем место в топе по рейтингу
-        place = get_position_in_rating(user_id,user_rating)
+        place = get_position_in_rating(user_rating)
 
         statistics = f"{place}+{solved_count}"
         return statistics
     else:
         return '0'  # пользователь не найден в таблице
          
-async def get_user_score_from_db(user_id: int) -> int:
+def get_user_score_from_db(user_id: int) -> int:
     user_stats = get_user_stats(user_id)
     if user_stats:
         score = user_stats[0]
@@ -399,8 +399,8 @@ async def check_statistics(message: Message):
         stats_data = statistics.split('+')
         place = int(stats_data[0])
         count_tasks = stats_data[1]
-        name = await get_user_name_from_db(user_id)
-        score = await get_user_score_from_db(user_id)
+        name = get_user_name_from_db(user_id)
+        score = get_user_score_from_db(user_id)
         
         emoji = ''
         if place == 1:

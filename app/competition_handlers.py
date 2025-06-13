@@ -7,9 +7,6 @@ from typing import Optional
 from DataBase.Tables.RoomTable import finish_room as async_finish_room
 from DataBase.Tables.RoomTable import create_room as db_create_room
 from aiogram.fsm.storage.base import StorageKey, BaseStorage
-
-
-
 import app.keyboards as keyboards
 
 comp_router = Router()
@@ -27,14 +24,16 @@ class Room_States(StatesGroup):
 class CompetitionStates(StatesGroup):
     waiting_for_answer = State()
 
+room_events: dict[int, asyncio.Event] = {} #room_id и событие для перехода к следующему вопросу после первого правильного ответа
 
-async def create_room_in_db(user_tg_id: int, is_closed: bool) -> Optional[int]:
-    res = get_user_by_tg(user_tg_id)
+
+async def create_room_in_db(user_id: int, is_closed: bool) -> Optional[int]:
+    res = get_user_by_tg(user_id)
     if not res:
-        print(f"[ERROR] Пользователь {user_tg_id} не найден")
+        print(f"[ERROR] Пользователь {user_id} не найден")
         return None
     
-    room_id = db_create_room(user_tg_id,is_closed)
+    room_id = db_create_room(user_id,is_closed)
     if room_id:
         print(f"[SUCCESS] Комната создана. ID: {room_id}")
         return room_id
@@ -67,7 +66,7 @@ async def notify_new_participant(room_id: int, new_user_id: int, bot: Bot):
         # Уведомление для остальных участников
         if existing_participants:
             message = f"🎉 Новый участник: {new_user_name}"
-            user_ids = await get_room_users_id(room_id)
+            user_ids = get_room_users_id(room_id)
             for user_id in user_ids:
                 if user_id != new_user_id:
                     try:
@@ -145,6 +144,7 @@ async def deleting_user_from_competition(user_id: int, message: Message, state: 
                 bot=message.bot,  # или другой доступный экземпляр бота
                 storage=state.storage
             )
+        
         return True
     return False
 
@@ -171,7 +171,7 @@ async def start_competition(message: Message, state: FSMContext, bot: Bot):
             return
 
         # Получаем список всех участников
-        participants = await get_room_users_id(room_id)
+        participants = get_room_users_id(room_id)
         if not participants:
             await message.answer("⚠️ В комнате нет участников")
             return
@@ -237,7 +237,7 @@ async def run_competition_tasks(
 
         # Устанавливаем состояние waiting_for_answer для всех участников
         for user_id in users:
-            participants = await get_room_users_id(room_id)
+            participants = get_room_users_id(room_id)
             if not (user_id in participants):
                 continue
             try:
@@ -265,10 +265,28 @@ async def run_competition_tasks(
             except Exception as e:
                 print(f"Ошибка отправки пользователю {user_id}: {e}")
 
-        await asyncio.sleep(15)  # Таймер на решение задачи
+        event = asyncio.Event()
+        room_events[room_id] = event
+
+        try:
+            await asyncio.wait_for(event.wait(), timeout=15)
+            participants = get_room_users_id(room_id)
+            for user_id in participants:
+                key = StorageKey(
+                    chat_id=user_id,
+                    user_id=user_id,
+                    bot_id=bot.id
+                )
+                await storage.set_state(key=key, state=None)
+        except asyncio.TimeoutError:
+            pass  # время вышло, никто не ответил правильно
+        finally:
+            room_events.pop(room_id, None)  # очистим после вопроса
+        
+        await asyncio.sleep(2)
 
     # После завершения всех задач сбрасываем состояния
-    participants = await get_room_users_id(room_id)
+    participants = get_room_users_id(room_id)
     for user_id in participants:
         try:
             key = StorageKey(
@@ -297,7 +315,7 @@ async def increase_score(user_id: int, room_id: int, score_delta: int = 100):
 
 async def notify_room_members(bot: Bot, room_id: int, message: str, exclude_user_id: int = None):
     """Отправляет сообщение всем участникам комнаты"""
-    user_ids = await get_room_users_id(room_id)
+    user_ids = get_room_users_id(room_id)
     for user_id in user_ids:
         if user_id != exclude_user_id:
             try:
@@ -407,18 +425,21 @@ async def handle_competition_answer(message: Message, state: FSMContext):
 
             # Уведомляем создателя комнаты (если это не он сам)
             # participants — список user_id всех участников комнаты
-            participants = await get_room_users_id(room_id)
+            participants = get_room_users_id(room_id)
             for participant_id in participants:
                 if participant_id != user_id:
                     try:
                         user_name = get_username_by_tg_id(user_id)
                         await message.bot.send_message(
                         participant_id,
-                        f"🎯 Участник {user_name} правильно решил задачу '{title}'"
+                        f"🎯 Участник {user_name} правильно решил задачу '{title}'!\nПереходим к следующему вопросу"
                         )
                     except Exception as e:
                         print(f"Ошибка уведомления участника {participant_id}: {e}")
-
+            
+            event = room_events.get(room_id)
+            if event and not event.is_set():
+                event.set()
 
         else:
             await message.answer("❌ Неверный ответ. Попробуйте еще раз!")
@@ -462,6 +483,9 @@ async def show_final_results(bot: Bot, room_id: int, users: list[int], state: FS
     # 4. Отправляем всем участникам
     for user_id in users:
         try:
+            participants = get_room_users_id(room_id)
+            if not (user_id in participants):
+                continue
             await bot.send_message(
                 user_id,
                 result_message,
@@ -480,7 +504,7 @@ async def exit_competition(message: Message, state: FSMContext):
     """Обработчик выхода пользователя из соревнования"""
     try:
         user_id = message.from_user.id
-        room_id = await get_room_id_for_user(user_id)
+        room_id = get_room_id_for_user(user_id)
 
         if not room_id:
             await message.answer("❌ Вы не находитесь в комнате")
@@ -501,7 +525,7 @@ async def exit_competition(message: Message, state: FSMContext):
         await state.clear()
 
         # 3. Получаем имя пользователя для уведомлений
-        user_name = await get_user_name_from_db(user_id)
+        user_name = get_user_name_from_db(user_id)
 
         # 4. Уведомляем остальных участников
         participants_count = get_room_participant_count(room_id)
@@ -582,9 +606,7 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
         # Создаём комнату с указанным количеством задач
         room_id = await create_room_in_db(
             user_id=user_id,
-            is_closed=is_closed,
-            bot=bot,
-            task_count=count_tasks  # Передаём count_tasks в БД
+            is_closed=is_closed  # Передаём count_tasks в БД
         )
 
         if not room_id:
@@ -594,7 +616,7 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
 
         # Формируем сообщение в зависимости от типа комнаты
         if is_closed:
-            password = await get_room_password(room_id)
+            password = get_room_password(room_id)
             print(f"[DEBUG] Created room ID: {room_id}, Key: {password}")
             message_text = (
                 f'✅ Вы создали закрытую комнату на *{count_tasks}* задач.\n'
@@ -603,7 +625,7 @@ async def create_room(message: Message, state: FSMContext, bot: Bot):
             )
             await add_user_in_closed_room(user_id, password)
         else:
-            password = await get_room_password(room_id)
+            password = get_room_password(room_id)
             print(f"[DEBUG] Created room ID: {room_id}, Key: {password}")
             message_text = (
                 f'✅ Вы создали открытую комнату на *{count_tasks}* задач.\n'
