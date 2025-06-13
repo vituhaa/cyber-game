@@ -28,6 +28,14 @@ PK  id                  int
 
 """
 
+def get_user_by_tg(user_tg_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        # Проверка пользователя
+        cur.execute("SELECT 1 FROM User WHERE user_tg_id = ?", (user_tg_id,))
+        if not cur.fetchone():
+            return False
+
 def get_or_create_user(user_tg_id, name):
     with connect() as conn:
         cur = conn.cursor()
@@ -39,7 +47,7 @@ def get_or_create_user(user_tg_id, name):
                     (user_tg_id, name))
         return cur.lastrowid
     
-def get_username_by_tg_id(user_tg_id):
+async def get_username_by_tg_id(user_tg_id):
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("SELECT name FROM User WHERE user_tg_id = ?", (user_tg_id,))
@@ -68,3 +76,14 @@ def get_user_role(user_tg_id):
         cur.execute("SELECT role FROM User WHERE user_tg_id = ?", (user_tg_id,))
         row = cur.fetchone()
         return row[0] if row else None
+    
+def get_position_in_rating(user_tg_id,user_rating):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT COUNT(*) + 1
+            FROM User
+            WHERE rating > ?
+        """, (user_tg_id,user_rating))
+        place_row = cur.fetchone()
+        return place_row[0] if place_row else 0

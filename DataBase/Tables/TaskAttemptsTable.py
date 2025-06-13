@@ -51,9 +51,8 @@ def save_attempt(user_id, task_id, is_correct, used_hints):
             INSERT INTO Task_Attempt (user_id, task_id, is_correct, used_hints, solved_at)
             VALUES (?, ?, ?, ?, ?)""",
             (user_id, task_id, is_correct, used_hints, datetime.utcnow()))
-    if is_correct:
-        score = max(10, 100 - used_hints * 10)
-        update_user_score(user_id, score, increment_solved=True)
+        conn.commit()
+    
 
 
 

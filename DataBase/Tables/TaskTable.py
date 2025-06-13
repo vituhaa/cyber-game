@@ -53,6 +53,12 @@ def get_task_id_by_title(title):
         cur.execute("SELECT id FROM Task WHERE title = ?", (title,))
         row = cur.fetchone()
         return row[0] if row else None
+    
+def get_task_by_id(task_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM Task WHERE id = ?", (task_id,))
+        return cur.fetchone()
 
 
 def get_task_solution(task_id):

@@ -375,17 +375,7 @@ async def get_stats_info(user_id: int) -> str:
         user_rating, solved_count = user_stats
 
         # Получаем место в топе по рейтингу
-        with connect() as conn:
-            cur = conn.cursor()
-            cur.execute("""
-                SELECT COUNT(*) + 1
-                FROM User
-                WHERE rating > (
-                    SELECT rating FROM User WHERE user_tg_id = ?
-                )
-            """, (user_id,))
-            place_row = cur.fetchone()
-            place = place_row[0] if place_row else 0
+        place = get_position_in_rating(user_id,user_rating)
 
         statistics = f"{place}+{solved_count}"
         return statistics

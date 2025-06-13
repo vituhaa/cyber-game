@@ -54,7 +54,64 @@ def get_room_id_by_key(key):
         cur = conn.cursor()
         cur.execute("SELECT id FROM Room WHERE key = ?", (key,))
         return cur.fetchone()[0]
+    
+async def get_room_password(room_id: int) -> str:
+    """Возвращает ключ комнаты из БД"""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT key FROM Room WHERE id = ?", (room_id,))
+        result = cur.fetchone()
+        return result[0] if result else None
+    
+async def check_password(password: str) -> bool:
+    """Проверяет существование комнаты с таким паролем"""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM Room WHERE key = ?", (password,))
+        return cur.fetchone() is not None
+    
+async def get_all_closed_rooms_ids() -> list[int]:
+    """Возвращает список ID всех закрытых комнат в статусе waiting"""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id FROM Room 
+            WHERE is_closed = 1 AND status = 'waiting'
+        """)
+        return [row[0] for row in cur.fetchall()]
+    
+async def get_all_opened_rooms_ids() -> list[int]:
+    """Возвращает список ID всех открытых комнат в статусе waiting"""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id FROM Room 
+            WHERE is_closed = 0 AND status = 'waiting'
+        """)
+        return [row[0] for row in cur.fetchall()]
 
+def get_room_creator(room_id: int) -> Optional[int]:
+    """Возвращает ID создателя комнаты"""
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT creator_id FROM Room WHERE id = ?", (room_id,))
+        result = cur.fetchone()
+        return result[0] if result else None
+    
+def get_room_status(room_id):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT status FROM Room WHERE id = ?", (room_id,))
+        return cur.fetchone()
+    
+def get_room_by_key_and_status(key,status='waiting'):
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT id, is_closed FROM Room 
+            WHERE key = ? AND status = ?
+        """, (key,status))
+        return cur.fetchone()
 
 def create_room(creator_id: int, is_closed: bool) -> Optional[int]:
     """
@@ -91,6 +148,7 @@ def start_game(room_id):
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("UPDATE Room SET status = 'active' WHERE id = ?", (room_id,))
+        conn.commit()
 
 
 async def finish_room(
