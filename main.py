@@ -29,6 +29,9 @@ dispatcher.include_router(router)
 dispatcher.include_router(admin_router)
 dispatcher.include_router(comp_router)
 
+async def healthcheck(request: web.Request):
+    return web.Response(text="✅ Bot is alive!")
+
 async def handle_webhook(request: web.Request):
     data = await request.text()
     update = Update.model_validate_json(data)
@@ -43,6 +46,8 @@ async def on_shutdown(app: web.Application):
 
 def create_app():
     app = web.Application()
+
+    app.router.add_get("/webhook", healthcheck)
 
     # Установка aiogram-хендлера
     SimpleRequestHandler(dispatcher=dispatcher, bot=bot).register(app, path=WEBHOOK_PATH)
