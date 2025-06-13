@@ -173,7 +173,7 @@ async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, 
         f"❓ *Вопрос:* {question}\n\n"
         f"(Введите Ваш ответ сообщением)"
     )
-    await callback.message.answer(task_text, parse_mode='Markdown')
+    await callback.message.answer(task_text, parse_mode='Markdown', reply_markup=keyboards.give_up_keyboard)
     await state.set_state(Answer.answer)
 
 
@@ -228,7 +228,7 @@ async def task_from_category(message: Message, state: FSMContext):
         f"❓ *Вопрос:* {question}\n\n"
         f"(Введите ваш ответ сообщением)"
     )
-    await message.answer(task_text, parse_mode='Markdown')
+    await message.answer(task_text, parse_mode='Markdown', reply_markup=keyboards.give_up_keyboard)
     await state.set_state(Answer.answer)
 
 
@@ -297,6 +297,16 @@ async def getting_hint(callback: CallbackQuery, state: FSMContext):
     await state.set_state(Answer.answer)
     await callback.answer()
 
+@router.callback_query(F.data == "give_up")
+async def giving_up(callback: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    task_id = data.get("task_id")
+
+    await callback.message.answer(f"🏳️ Вы сдались.\nТеперь вы можете выбрать другую задачу или режим.")
+    await state.clear()
+    await callback.answer()
+
+
 
 
 @router.callback_query(F.data == "give_up")
@@ -356,7 +366,7 @@ async def comparing_answer(message: Message, state: FSMContext):
         if not hints_exhausted and await are_there_any_hints(task_id, hint_count):
             await message.answer(
                 "❌ Ответ неверный! Попробуйте ещё раз или возьмите подсказку.",
-                reply_markup=keyboards.choosing_hint_or_not
+                reply_markup=keyboards.hint_or_give_up_keyboard
             )
         else:
             # Подсказки закончились
