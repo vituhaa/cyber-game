@@ -3,6 +3,7 @@ from aiogram import Bot, Dispatcher
 from dotenv import load_dotenv
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from aiogram.types import Update
 import os
 from app.handlers import router
 from app.admin_handlers import admin_router
@@ -28,6 +29,12 @@ dispatcher.include_router(router)
 dispatcher.include_router(admin_router)
 dispatcher.include_router(comp_router)
 
+async def handle_webhook(request: web.Request):
+    data = await request.text()
+    update = Update.model_validate_json(data)
+    await dispatcher.feed_update(bot, update)
+    return web.Response(text='OK')
+
 async def on_startup(app: web.Application):
     await bot.set_webhook(WEBHOOK_URL)
 
@@ -38,7 +45,7 @@ def create_app():
     app = web.Application()
 
     # Установка aiogram-хендлера
-    SimpleRequestHandler(dispatcher=dispatcher, bot=bot).register(app, path=WEBHOOK_PATH)
+    app.router.add_post("/webhook", handle_webhook)
 
     # Старт и стоп хуков
     app.on_startup.append(on_startup)
