@@ -94,13 +94,13 @@ async def enter_category(message: Message, state: FSMContext):
     
 @admin_router.callback_query(New_Task.category, F.data == 'cypher_task')
 async def enter_complexity_1(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(category_id=2, category_name="Шифр")
+    await state.update_data(category_id=2, category_name="Симметричное шифрование")
     await state.set_state(New_Task.complexity)
     await callback.message.answer('Выберите сложность', reply_markup=keyboards.task_complexity_for_admin)
 
 @admin_router.callback_query(New_Task.category, F.data == 'symbol_task')
 async def enter_complexity_2(callback: CallbackQuery, state: FSMContext):
-    await state.update_data(category_id=1, category_name="Символьные")
+    await state.update_data(category_id=1, category_name="Асимметричное шифрование")
     await state.set_state(New_Task.complexity)
     await callback.message.answer('Выберите сложность', reply_markup=keyboards.task_complexity_for_admin)
     

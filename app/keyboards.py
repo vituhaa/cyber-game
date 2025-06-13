@@ -13,8 +13,8 @@ task_from_category = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 choosing_type_of_task = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='Шифр', callback_data='cypher')],
-    [InlineKeyboardButton(text='Символьные', callback_data='symbol')]
+    [InlineKeyboardButton(text='Симметричное шифрование', callback_data='cypher')],
+    [InlineKeyboardButton(text='Асимметричное шифрование', callback_data='symbol')]
 ])
 
 choosing_hint_or_not = InlineKeyboardMarkup(inline_keyboard=[
@@ -47,8 +47,8 @@ task_complexity_for_admin = InlineKeyboardMarkup(inline_keyboard=[
 ])
 
 task_category_for_admin = InlineKeyboardMarkup(inline_keyboard=[
-    [InlineKeyboardButton(text='Шифр', callback_data='cypher_task')],
-    [InlineKeyboardButton(text='Символьные', callback_data='symbol_task')]
+    [InlineKeyboardButton(text='Симметричное шифрование', callback_data='cypher_task')],
+    [InlineKeyboardButton(text='Асимметричное шифрование', callback_data='symbol_task')]
 ])
 
 # competition keyboards

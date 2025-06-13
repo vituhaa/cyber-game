@@ -129,8 +129,8 @@ async def giving_task_from_category(callback: CallbackQuery, state: FSMContext, 
     complexity: строка 'лёгкую', 'среднюю', 'сложную'
     """
     type_name_map = {
-        "шифрового": "cipher",
-        "символьного": "symbol"
+        "симметричное шифрование": "cipher",
+        "асимметричное шифрование": "symbol"
     }
 
     difficulty_map = {'лёгкую': 1, 'среднюю': 2, 'сложную': 3}
@@ -195,11 +195,11 @@ async def choose_type(callback: CallbackQuery, state: FSMContext):
 
     tmp_type = callback.data
     if tmp_type == 'symbol':
-        type_name = "символьного"
+        type_name = "асимметричное шифрование"
     else:
-        type_name = "шифрового"
+        type_name = "симметричное шифрование"
 
-    await callback.message.answer(f'Вы выбрали {complexity} задачу {type_name} типа. \nГенерируем...')
+    await callback.message.answer(f'Вы выбрали {complexity} задачу на {type_name}. \nГенерируем...')
     await state.update_data(user_id=callback.from_user.id)
 
     await giving_task_from_category(callback, state, complexity, type_name)
