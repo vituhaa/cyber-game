@@ -199,7 +199,7 @@ async def choose_type(callback: CallbackQuery, state: FSMContext):
     else:
         type_name = "симметричное шифрование"
 
-    await callback.message.answer(f'Вы выбрали {complexity} задачу на {type_name}. \nГенерируем...')
+    await callback.message.answer(f'Вы выбрали {complexity} задачу на {type_name}. \nИщем...')
     await state.update_data(user_id=callback.from_user.id)
 
     await giving_task_from_category(callback, state, complexity, type_name)
@@ -208,7 +208,7 @@ async def choose_type(callback: CallbackQuery, state: FSMContext):
 
 @router.message(F.text == 'Случайная задача')
 async def task_from_category(message: Message, state: FSMContext):
-    await message.answer('Вы выбрали случайную задачу. \nГенерируем...')
+    await message.answer('Вы выбрали случайную задачу. \nИщем...')
 
     task = get_random_task()
     print(task)

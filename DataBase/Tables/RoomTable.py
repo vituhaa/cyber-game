@@ -156,43 +156,22 @@ async def finish_room(
         bot: Bot,
         storage: BaseStorage
 ) -> bool:
-    """
-    Завершает комнату, сбрасывает состояния всех участников,
-    удаляет участников, задачи и саму комнату из базы данных.
-
-    Args:
-        room_id: ID комнаты для завершения
-        bot: Экземпляр бота (для формирования StorageKey)
-        storage: Хранилище состояний FSM
-
-    Returns:
-        bool: True если операция выполнена успешно
-    """
     try:
         with connect() as conn:
             cur = conn.cursor()
 
-            # Проверка: существует ли комната
             cur.execute("SELECT id FROM Room WHERE id = ?", (room_id,))
             if not cur.fetchone():
                 return False
-
-            # Получаем всех участников комнаты
             cur.execute("SELECT user_id FROM Room_Participants WHERE room_id = ?", (room_id,))
             participants = [row[0] for row in cur.fetchall()]
-
-            # Удаляем участников комнаты
             cur.execute("DELETE FROM Room_Participants WHERE room_id = ?", (room_id,))
-
-            # Удаляем задачи комнаты
             cur.execute("DELETE FROM Room_Tasks WHERE room_id = ?", (room_id,))
-
-            # Удаляем саму комнату
             cur.execute("DELETE FROM Room WHERE id = ?", (room_id,))
 
             conn.commit()
 
-        # Сброс FSM состояния и данных для участников
+
         for user_id in participants:
             try:
                 key = StorageKey(

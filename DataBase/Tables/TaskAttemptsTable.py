@@ -25,7 +25,6 @@ FK2 user_id     int
     solved_at   timestamp
 
 """
-#TODO: перенести работу с hint в другой файл
 
 def ensure_attempt_exists(user_id, task_id):
     with connect() as conn:
