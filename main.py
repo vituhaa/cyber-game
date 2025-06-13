@@ -29,11 +29,8 @@ dispatcher.include_router(router)
 dispatcher.include_router(admin_router)
 dispatcher.include_router(comp_router)
 
-async def handle_webhook(request: web.Request):
-    data = await request.text()
-    update = Update.model_validate_json(data)
-    await dispatcher.feed_update(bot, update)
-    return web.Response(text='OK')
+async def handle_webhook(request):
+    return web.Response(text="OK")
 
 async def on_startup(app: web.Application):
     await bot.set_webhook(WEBHOOK_URL)
