@@ -251,7 +251,7 @@ async def run_competition_tasks(
         room_events[room_id] = event
 
         try:
-            await asyncio.wait_for(event.wait(), timeout=15)
+            await asyncio.wait_for(event.wait(), timeout=420)
             participants = get_room_users_id(room_id)
             for user_id in participants:
                 key = StorageKey(
